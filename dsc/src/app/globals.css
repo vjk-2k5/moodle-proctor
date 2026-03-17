@@ -12,7 +12,26 @@ body {
 }
 
 .glass-surface {
-  @apply bg-slate-900/70 backdrop-blur-xl border border-slate-800/80 shadow-soft;
+  @apply bg-slate-900/65 backdrop-blur-xl border border-slate-800/70 shadow-soft;
+  box-shadow:
+    0 18px 40px rgba(15, 23, 42, 0.75),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
+.surface-muted {
+  @apply bg-slate-950/70 border border-slate-800/70;
+}
+
+.surface-strong {
+  @apply bg-slate-950/90 border border-slate-700/80;
+}
+
+.section-title {
+  @apply text-sm font-semibold tracking-tight text-slate-100;
+}
+
+.section-copy {
+  @apply text-[11px] text-slate-400;
 }
 
 .scroll-thin {
