@@ -1,4 +1,4 @@
-import { Student } from "@types/index";
+import type { Student } from "@app-types/index";
 import { StatusBadge } from "./StatusBadge";
 
 interface Props {

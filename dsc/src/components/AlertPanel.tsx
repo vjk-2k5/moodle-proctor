@@ -1,6 +1,6 @@
 import { alerts, students } from "@mock/data";
-import { Alert } from "@types/index";
-import { FiAlertTriangle, FiMic, FiMonitorOff, FiSmartphone } from "react-icons/fi";
+import type { Alert } from "@app-types/index";
+import { FiAlertTriangle, FiMic, FiMonitor, FiSmartphone } from "react-icons/fi";
 
 const alertIcon = (type: Alert["type"]) => {
   switch (type) {
@@ -9,7 +9,7 @@ const alertIcon = (type: Alert["type"]) => {
     case "phone_detected":
       return <FiSmartphone className="h-3.5 w-3.5 text-amber-300" />;
     case "left_screen":
-      return <FiMonitorOff className="h-3.5 w-3.5 text-rose-300" />;
+      return <FiMonitor className="h-3.5 w-3.5 text-rose-300" />;
     case "background_voice":
       return <FiMic className="h-3.5 w-3.5 text-sky-300" />;
   }

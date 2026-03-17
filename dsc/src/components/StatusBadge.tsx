@@ -1,4 +1,4 @@
-import { StudentStatus } from "@types/index";
+import type { StudentStatus } from "@app-types/index";
 
 interface Props {
   status: StudentStatus;

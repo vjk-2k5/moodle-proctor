@@ -1,4 +1,4 @@
-import { Alert, ExamReport, Student } from "@types/index";
+import type { Alert, ExamReport, Student } from "@app-types/index";
 
 export const students: Student[] = [
   { id: "STU101", name: "John Doe", exam: "Physics Midterm", status: "normal", connection: "Excellent" },

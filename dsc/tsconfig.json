@@ -10,6 +10,7 @@
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
+    "baseUrl": ".",
     "esModuleInterop": true,
     "module": "ESNext",
     "moduleResolution": "bundler",
@@ -17,19 +18,17 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "types": [
-      "next",
-      "next/image-types",
-      "next/navigation"
-    ],
     "paths": {
+      "@/*": [
+        "./src/*"
+      ],
       "@components/*": [
         "./src/components/*"
       ],
       "@mock/*": [
         "./src/mock/*"
       ],
-      "@types/*": [
+      "@app-types/*": [
         "./src/types/*"
       ],
       "@styles/*": [
