@@ -5,10 +5,12 @@ const path = require('path')
 const fs = require('fs')
 
 const app = express()
-const PORT = 5000
-const SESSION_TTL_MS = 60 * 60 * 1000
-const EXAM_DURATION_SECONDS = 10 * 60
-const MAX_WARNINGS = 15
+const SERVER_CONFIG = {
+  port: 5000,
+  sessionTtlMs: 60 * 60 * 1000,
+  examDurationSeconds: 10 * 60,
+  maxWarnings: 15
+}
 const LOG_DIRECTORY = path.join(__dirname, 'logs')
 const WARNING_LOG_FILE = path.join(LOG_DIRECTORY, 'warnings.log')
 
@@ -47,7 +49,7 @@ function getPublicStudentProfile() {
 
 function createSession() {
   const token = generateToken()
-  const expiresAt = Date.now() + SESSION_TTL_MS
+  const expiresAt = Date.now() + SERVER_CONFIG.sessionTtlMs
 
   sessions.set(token, {
     studentId: student.id,
@@ -125,7 +127,7 @@ function serializeAttempt(attempt) {
     startedAt: attempt.startedAt,
     submittedAt: attempt.submittedAt,
     submissionReason: attempt.submissionReason,
-    maxWarnings: MAX_WARNINGS,
+    maxWarnings: SERVER_CONFIG.maxWarnings,
     canResume: attempt.status === 'in_progress',
     violationCount: attempt.violationCount,
     violations: attempt.violations
@@ -230,7 +232,7 @@ app.get('/api/exam', requireAuth, (req, res) => {
 
   return res.json({
     success: true,
-    timerSeconds: EXAM_DURATION_SECONDS,
+    timerSeconds: SERVER_CONFIG.examDurationSeconds,
     questionPaper: 'question-paper.pdf',
     student: req.student,
     attempt: serializeAttempt(attempt)
@@ -286,14 +288,14 @@ app.post('/api/exam/violations', requireAuth, (req, res) => {
     attempt.violationCount += 1
   }
 
-  if (attempt.violationCount >= MAX_WARNINGS) {
+  if (attempt.violationCount >= SERVER_CONFIG.maxWarnings) {
     submitAttempt(attempt, 'warning_limit_reached')
   }
 
   return res.json({
     success: true,
     message: attempt.status === 'submitted'
-      ? `Exam terminated after reaching ${MAX_WARNINGS} warnings.`
+      ? `Exam terminated after reaching ${SERVER_CONFIG.maxWarnings} warnings.`
       : undefined,
     attempt: serializeAttempt(attempt)
   })
@@ -331,6 +333,6 @@ app.get('/api/questions', requireAuth, (req, res) => {
   ])
 })
 
-app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`)
+app.listen(SERVER_CONFIG.port, () => {
+  console.log(`Server running at http://localhost:${SERVER_CONFIG.port}`)
 })

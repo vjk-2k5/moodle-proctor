@@ -1,4 +1,8 @@
-const API_BASE_URL = 'http://localhost:5000'
+const APP_CONFIG = {
+  apiBaseUrl: 'http://localhost:5000'
+}
+
+const API_BASE_URL = APP_CONFIG.apiBaseUrl
 
 function getStoredSession() {
   const rawSession = localStorage.getItem('authSession')

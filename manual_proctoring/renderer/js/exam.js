@@ -11,9 +11,15 @@ let audioUnlocked = false
 let blockedAppMonitoringEnabled = true
 let blurEventCount = 0
 let visibilityEventCount = 0
+let reconnectCheckTimerId = null
+let backendDisconnected = false
 
-const MAX_WARNINGS = 15
-const NETWORK_APP_WARNING_COOLDOWN_MS = 5000
+const EXAM_CONFIG = {
+  maxWarnings: 15,
+  networkAppWarningCooldownMs: 5000,
+  reconnectCheckIntervalMs: 5000
+}
+const MAX_WARNINGS = EXAM_CONFIG.maxWarnings
 const recentBlockedAppWarnings = new Map()
 const USER_FACING_WARNING_COPY = {
   face_absent: {
@@ -328,18 +334,25 @@ function renderQuestionSummary(questions = []) {
 }
 
 async function loadQuestionSummary() {
-  const response = await fetchWithSession(`${API_BASE_URL}/api/questions`)
+  try {
+    const response = await fetchWithSession(`${API_BASE_URL}/api/questions`)
 
-  if (!response) {
-    return
+    if (!response) {
+      markBackendDisconnected('We could not load the question summary. Trying to reconnect...')
+      return false
+    }
+
+    if (!response.ok) {
+      throw new Error('Question summary request failed')
+    }
+
+    const data = await response.json()
+    renderQuestionSummary(data)
+    return true
+  } catch (error) {
+    markBackendDisconnected('We could not load the question summary. Trying to reconnect...')
+    throw error
   }
-
-  if (!response.ok) {
-    throw new Error('Question summary request failed')
-  }
-
-  const data = await response.json()
-  renderQuestionSummary(data)
 }
 
 function ensureAudioContext() {
@@ -424,6 +437,77 @@ function updateSubmissionButton(isDisabled, label = 'Submit Exam') {
   submitButton.innerText = label
 }
 
+function setNavigationButtonsDisabled(isDisabled) {
+  const buttons = document.querySelectorAll('.secondary-btn')
+  buttons.forEach(button => {
+    button.disabled = isDisabled
+  })
+}
+
+function clearReconnectCheck() {
+  if (!reconnectCheckTimerId) {
+    return
+  }
+
+  clearInterval(reconnectCheckTimerId)
+  reconnectCheckTimerId = null
+}
+
+function setBackendDisconnectedState(isDisconnected, message) {
+  backendDisconnected = isDisconnected
+
+  if (isDisconnected) {
+    updateSubmissionButton(true, 'Backend Offline')
+    setNavigationButtonsDisabled(true)
+    setExamStatus(
+      message || 'Connection to the exam server was lost. We will keep trying to reconnect.',
+      'error'
+    )
+    return
+  }
+
+  setNavigationButtonsDisabled(false)
+  updateSubmissionButton(examSubmitted || isSubmitting, examSubmitted ? 'Submitted' : 'Submit Exam')
+  setExamStatus(message || 'Connection restored. You can continue your exam.', 'info')
+}
+
+async function checkBackendConnection() {
+  const response = await fetchWithSession(`${API_BASE_URL}/api/session`)
+
+  if (!response) {
+    markBackendDisconnected('We could not start the exam right now. Trying to reconnect...')
+    return false
+  }
+
+  return response.ok
+}
+
+function startReconnectChecks() {
+  if (reconnectCheckTimerId) {
+    return
+  }
+
+  reconnectCheckTimerId = setInterval(async () => {
+    try {
+      const isConnected = await checkBackendConnection()
+
+      if (!isConnected) {
+        return
+      }
+
+      clearReconnectCheck()
+      setBackendDisconnectedState(false, 'Connection restored. You can continue your exam.')
+    } catch (error) {
+      console.error('Reconnect check failed:', error)
+    }
+  }, EXAM_CONFIG.reconnectCheckIntervalMs)
+}
+
+function markBackendDisconnected(message) {
+  setBackendDisconnectedState(true, message)
+  startReconnectChecks()
+}
+
 function releaseExamResources() {
   if (examTimerId) {
     clearInterval(examTimerId)
@@ -449,6 +533,8 @@ function releaseExamResources() {
   if (window.electronAPI?.stopExamMonitoring) {
     window.electronAPI.stopExamMonitoring()
   }
+
+  clearReconnectCheck()
 }
 
 function formatCompletionLabel(value, fallback = 'Not available') {
@@ -558,12 +644,17 @@ async function reportViolation(type, detail, severity = 'warning') {
     })
 
     if (!response) {
+      markBackendDisconnected('We could not reach the exam server while recording this event. Trying to reconnect...')
       return
     }
 
     const data = await response.json()
 
     if (response.ok && data.attempt) {
+      if (backendDisconnected) {
+        clearReconnectCheck()
+        setBackendDisconnectedState(false, 'Connection restored. Your exam is back online.')
+      }
       currentAttempt = data.attempt
       updateViolationCount(data.attempt.violationCount)
       renderWarningHistory(data.attempt.violations)
@@ -580,6 +671,7 @@ async function reportViolation(type, detail, severity = 'warning') {
     }
   } catch (error) {
     console.error('Failed to report violation:', error)
+    markBackendDisconnected('We could not reach the exam server while recording this event. Trying to reconnect...')
   }
 }
 
@@ -605,7 +697,8 @@ async function loadQuestionPaper(questionPaperName) {
   const response = await fetchWithSession(`${API_BASE_URL}/files/${questionPaperName}`)
 
   if (!response) {
-    return
+    markBackendDisconnected('We could not load the question paper. Trying to reconnect...')
+    return false
   }
 
   if (!response.ok) {
@@ -615,6 +708,7 @@ async function loadQuestionPaper(questionPaperName) {
   const fileBlob = await response.blob()
   questionPaperUrl = URL.createObjectURL(fileBlob)
   document.getElementById('questionFrame').src = `${questionPaperUrl}#toolbar=0`
+  return true
 }
 
 async function startExamAttempt() {
@@ -623,6 +717,7 @@ async function startExamAttempt() {
   })
 
   if (!response) {
+    markBackendDisconnected('We could not start the exam right now. Trying to reconnect...')
     return false
   }
 
@@ -634,6 +729,10 @@ async function startExamAttempt() {
   }
 
   currentAttempt = data.attempt
+  if (backendDisconnected) {
+    clearReconnectCheck()
+    setBackendDisconnectedState(false, 'Connection restored. You can continue your exam.')
+  }
   updateViolationCount(data.attempt.violationCount)
   renderWarningHistory(data.attempt.violations)
   examStarted = true
@@ -652,6 +751,7 @@ async function loadExam() {
     const response = await fetchWithSession(`${API_BASE_URL}/api/exam`)
 
     if (!response) {
+      markBackendDisconnected('We could not load your exam. Trying to reconnect...')
       return
     }
 
@@ -686,12 +786,17 @@ async function loadExam() {
     }
 
     startTimer(data.timerSeconds)
-    await loadQuestionPaper(data.questionPaper)
+    const paperLoaded = await loadQuestionPaper(data.questionPaper)
+
+    if (!paperLoaded) {
+      return
+    }
+
     await loadQuestionSummary()
     setExamStatus('Your exam is ready. Stay focused and good luck.', 'info')
   } catch (error) {
     console.error('Error loading exam:', error)
-    setExamStatus('We could not connect to the exam server. Please try again or contact the invigilator.', 'error')
+    markBackendDisconnected('We could not connect to the exam server. Trying to reconnect...')
   }
 }
 
@@ -714,6 +819,7 @@ async function submitExam(reason = 'manual_submit') {
     })
 
     if (!response) {
+      markBackendDisconnected('We could not reach the exam server to submit your exam. Trying to reconnect...')
       return
     }
 
@@ -725,13 +831,18 @@ async function submitExam(reason = 'manual_submit') {
     }
 
     currentAttempt = data.attempt
+    if (backendDisconnected) {
+      clearReconnectCheck()
+    }
     finishExamUI(reason)
   } catch (error) {
     console.error('Submit error:', error)
-    setExamStatus('We could not submit your exam right now. Please try again.', 'error')
+    markBackendDisconnected('We could not submit your exam right now. Trying to reconnect...')
   } finally {
     isSubmitting = false
-    updateSubmissionButton(examSubmitted, examSubmitted ? 'Submitted' : 'Submit Exam')
+    if (!backendDisconnected) {
+      updateSubmissionButton(examSubmitted, examSubmitted ? 'Submitted' : 'Submit Exam')
+    }
   }
 }
 
@@ -770,14 +881,14 @@ async function startCamera() {
 
 // Violation type mapping — keys match what your backend detectors return
 const PROCTORING_VIOLATION_MAP = {
-  // existing
+  // Existing checks
   'No face detected':              { type: 'face_absent',        detail: 'Candidate face not visible in camera.' },
   'Multiple faces detected':       { type: 'multiple_faces',     detail: 'More than one face detected in frame.' },
   'Phone detected':                { type: 'phone_detected',     detail: 'A phone was detected in the camera frame.' },
   'Looking away from screen':      { type: 'gaze_away',          detail: 'Candidate gaze directed away from screen.' },
   'Talking detected':              { type: 'lip_movement',       detail: 'Lip movement suggesting speech detected.' },
   'Camera may be blocked':         { type: 'camera_blocked',     detail: 'Lighting anomaly — camera may be covered.' },
-  // newly wired
+  // Additional checks
   'Abnormal blink rate detected':  { type: 'blink_anomaly',      detail: 'Unusual blink pattern detected.' },
   'Lighting too dark — face not visible': { type: 'lighting_dark', detail: 'Camera feed too dark to verify candidate.' },
   'Background movement detected':  { type: 'background_motion',  detail: 'Unexpected movement detected in background.' },
@@ -787,14 +898,15 @@ const PROCTORING_VIOLATION_MAP = {
 // Tracks which violation types are currently "active" so we don't spam
 // reportViolation on every frame — only fires when a violation first appears
 // or re-appears after clearing.
+// Track active detector messages so they are only logged when first seen.
 const activeViolations = new Set()
 
 function startFrameCapture(video) {
   const canvas = document.createElement('canvas')
-  const ctx    = canvas.getContext('2d')
+  const ctx = canvas.getContext('2d')
 
   const WS_URL = (window.PROCTOR_WS_URL) || 'ws://localhost:8000/proctor'
-  let ws       = null
+  let ws = null
   let intervalId = null
   let hasConnectedOnce = false
 
@@ -812,7 +924,7 @@ function startFrameCapture(video) {
       }
 
       hasConnectedOnce = true
-      intervalId = setInterval(sendFrame, 1000 / 5)  // 5 fps
+      intervalId = setInterval(sendFrame, 1000 / 5)
     }
 
     ws.onmessage = (event) => {
@@ -861,7 +973,7 @@ function startFrameCapture(video) {
 
       // ── Restore status once all violations clear ─────────────────────────
       if (incomingViolations.size === 0) {
-        setExamStatus('Camera connected. Good luck!', 'info')
+        setExamStatus('Your camera is connected. You are ready to begin.', 'info')
       }
     }
 
@@ -888,9 +1000,9 @@ function startFrameCapture(video) {
 
   function sendFrame() {
     if (!ws || ws.readyState !== WebSocket.OPEN) return
-    if (!video.videoWidth) return  // video not ready yet
+    if (!video.videoWidth) return
 
-    canvas.width  = video.videoWidth
+    canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     ctx.drawImage(video, 0, 0)
     const frame = canvas.toDataURL('image/jpeg', 0.6).split(',')[1]
@@ -906,12 +1018,39 @@ function shouldLogBlockedProcess(processName) {
   const previousLoggedAt = recentBlockedAppWarnings.get(key) || 0
   const now = Date.now()
 
-  if (now - previousLoggedAt < NETWORK_APP_WARNING_COOLDOWN_MS) {
+  if (now - previousLoggedAt < EXAM_CONFIG.networkAppWarningCooldownMs) {
     return false
   }
 
   recentBlockedAppWarnings.set(key, now)
   return true
+}
+
+function getBlockedShortcutMessage(event) {
+  const key = String(event.key || '').toLowerCase()
+  const usesPrimaryModifier = event.ctrlKey || event.metaKey
+
+  if (usesPrimaryModifier && key === 'p') {
+    return 'Printing is disabled during the exam.'
+  }
+
+  if (usesPrimaryModifier && key === 's') {
+    return 'Saving shortcuts are disabled during the exam.'
+  }
+
+  if (usesPrimaryModifier && key === 'r') {
+    return 'Refresh shortcuts are disabled during the exam.'
+  }
+
+  if (event.key === 'F5') {
+    return 'Refreshing the exam is disabled.'
+  }
+
+  if (event.key === 'F11') {
+    return 'Fullscreen toggle shortcuts are disabled during the exam.'
+  }
+
+  return null
 }
 
 async function goBackToDashboard() {
@@ -934,15 +1073,19 @@ function registerExamGuards() {
   document.addEventListener('contextmenu', event => event.preventDefault())
   document.addEventListener('copy', event => event.preventDefault())
   document.addEventListener('keydown', event => {
-    if (event.ctrlKey && event.key.toLowerCase() === 'p') {
-      event.preventDefault()
-      showViolationStatus({
-        type: 'blocked_shortcut',
-        detail: 'Printing is disabled during the exam.',
-        severity: 'warning'
-      })
-      reportViolation('blocked_shortcut', 'Candidate attempted to print during the exam.', 'warning')
+    const shortcutMessage = getBlockedShortcutMessage(event)
+
+    if (!shortcutMessage) {
+      return
     }
+
+    event.preventDefault()
+    showViolationStatus({
+      type: 'blocked_shortcut',
+      detail: shortcutMessage,
+      severity: 'warning'
+    })
+    reportViolation('blocked_shortcut', `Candidate attempted a blocked shortcut: ${shortcutMessage}`, 'warning')
   })
 
   window.addEventListener('blur', () => {
