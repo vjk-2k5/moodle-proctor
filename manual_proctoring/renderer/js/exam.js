@@ -27,21 +27,22 @@ const EXAM_CONFIG = {
   maxWarnings: 15,
   networkAppWarningCooldownMs: 5000,
   reconnectCheckIntervalMs: 5000,
-  proctorFrameIntervalMs: 125
+  proctorFrameIntervalMs: 125,
+  aiWarningDefaultDwellMs: 2500,
+  aiWarningDwellMs: {
+    'No face detected': 5000,
+    'Multiple faces detected': 2500,
+    'Looking away from screen': 2500,
+    'Phone detected': 1000,
+    'Forbidden object detected': 2000,
+    'Identity could not be verified': 5000,
+    'Camera may be blocked': 3000
+  }
 }
 const MAX_WARNINGS = EXAM_CONFIG.maxWarnings
 const recentBlockedAppWarnings = new Map()
 const PROCTOR_DOCK_POSITION_KEY = 'manual_proctoring.proctorDock.position'
 const PROCTOR_DOCK_COLLAPSED_KEY = 'manual_proctoring.proctorDock.collapsed'
-const AI_WARNING_DWELL_MS = {
-  'No face detected': 5000,
-  'Multiple faces detected': 2500,
-  'Looking away from screen': 2500,
-  'Phone detected': 2000,
-  'Forbidden object detected': 2000,
-  'Identity could not be verified': 5000,
-  'Camera may be blocked': 3000
-}
 const USER_FACING_WARNING_COPY = {
   face_absent: {
     title: 'Face not visible',
@@ -109,7 +110,8 @@ const USER_FACING_WARNING_COPY = {
   },
   proctor_connection_lost: {
     title: 'Proctoring reconnecting',
-    detail: 'The proctoring connection was interrupted and is trying to reconnect.'
+    detail:
+      'The proctoring connection was interrupted and is trying to reconnect.'
   },
   proctor_reconnected: {
     title: 'Proctoring connected',
@@ -129,7 +131,7 @@ const USER_FACING_WARNING_COPY = {
   }
 }
 
-function setExamStatus(message, type = 'info') {
+function setExamStatus (message, type = 'info') {
   const status = document.getElementById('examMessage')
 
   if (!status) {
@@ -141,13 +143,13 @@ function setExamStatus(message, type = 'info') {
   status.innerText = message || ''
 }
 
-function formatDuration(totalSeconds) {
+function formatDuration (totalSeconds) {
   const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0')
   const seconds = String(totalSeconds % 60).padStart(2, '0')
   return `${minutes}:${seconds}`
 }
 
-function updateViolationCount(count) {
+function updateViolationCount (count) {
   const normalizedCount = Number(count || 0)
   const violationCountElement = document.getElementById('violationCount')
   const warningProgressElement = document.getElementById('warningProgress')
@@ -179,7 +181,7 @@ function updateViolationCount(count) {
   warningProgressElement.classList.add('warning-progress-safe')
 }
 
-function formatViolationTimestamp(timestamp) {
+function formatViolationTimestamp (timestamp) {
   if (!timestamp) {
     return 'Time unavailable'
   }
@@ -200,7 +202,7 @@ function formatViolationTimestamp(timestamp) {
   })
 }
 
-function escapeHtml(value) {
+function escapeHtml (value) {
   return String(value || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -209,12 +211,15 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;')
 }
 
-function formatLiveUpdateLabel() {
+function formatLiveUpdateLabel () {
   if (!lastProctorPayloadAt) {
     return 'Waiting'
   }
 
-  const secondsAgo = Math.max(0, Math.round((Date.now() - lastProctorPayloadAt) / 1000))
+  const secondsAgo = Math.max(
+    0,
+    Math.round((Date.now() - lastProctorPayloadAt) / 1000)
+  )
 
   if (secondsAgo <= 1) {
     return 'Just now'
@@ -223,14 +228,14 @@ function formatLiveUpdateLabel() {
   return `${secondsAgo}s ago`
 }
 
-function resetLiveMonitoringState() {
+function resetLiveMonitoringState () {
   lastProctorPayloadAt = 0
   activeViolations.clear()
   pendingAiViolations.clear()
   setLiveAIWarnings([], [])
 }
 
-function startLiveUiRefreshLoop() {
+function startLiveUiRefreshLoop () {
   if (liveUiRefreshTimerId) {
     return
   }
@@ -241,7 +246,7 @@ function startLiveUiRefreshLoop() {
   }, 1000)
 }
 
-function clampProctorDockPosition(x, y, dock) {
+function clampProctorDockPosition (x, y, dock) {
   const panel = dock || document.getElementById('proctorDock')
 
   if (!panel) {
@@ -250,7 +255,10 @@ function clampProctorDockPosition(x, y, dock) {
 
   const margin = 12
   const maxX = Math.max(margin, window.innerWidth - panel.offsetWidth - margin)
-  const maxY = Math.max(margin, window.innerHeight - panel.offsetHeight - margin)
+  const maxY = Math.max(
+    margin,
+    window.innerHeight - panel.offsetHeight - margin
+  )
 
   return {
     x: Math.min(Math.max(margin, x), maxX),
@@ -258,7 +266,7 @@ function clampProctorDockPosition(x, y, dock) {
   }
 }
 
-function applyProctorDockPosition(x, y) {
+function applyProctorDockPosition (x, y) {
   const dock = document.getElementById('proctorDock')
 
   if (!dock) {
@@ -272,7 +280,7 @@ function applyProctorDockPosition(x, y) {
   dock.style.bottom = 'auto'
 }
 
-function initializeProctorDock() {
+function initializeProctorDock () {
   const dock = document.getElementById('proctorDock')
   const handle = document.getElementById('proctorDockHandle')
   const toggle = document.getElementById('proctorDockToggle')
@@ -281,15 +289,22 @@ function initializeProctorDock() {
     return
   }
 
-  const savedCollapsed = window.localStorage.getItem(PROCTOR_DOCK_COLLAPSED_KEY) === 'true'
+  const savedCollapsed =
+    window.localStorage.getItem(PROCTOR_DOCK_COLLAPSED_KEY) === 'true'
   dock.classList.toggle('is-collapsed', savedCollapsed)
   toggle.innerText = savedCollapsed ? 'Expand' : 'Minimize'
   toggle.setAttribute('aria-expanded', String(!savedCollapsed))
 
   requestAnimationFrame(() => {
     try {
-      const savedPosition = JSON.parse(window.localStorage.getItem(PROCTOR_DOCK_POSITION_KEY) || 'null')
-      if (savedPosition && Number.isFinite(savedPosition.x) && Number.isFinite(savedPosition.y)) {
+      const savedPosition = JSON.parse(
+        window.localStorage.getItem(PROCTOR_DOCK_POSITION_KEY) || 'null'
+      )
+      if (
+        savedPosition &&
+        Number.isFinite(savedPosition.x) &&
+        Number.isFinite(savedPosition.y)
+      ) {
         applyProctorDockPosition(savedPosition.x, savedPosition.y)
         return
       }
@@ -354,7 +369,10 @@ function initializeProctorDock() {
     dragState = null
     dock.classList.remove('is-dragging')
 
-    if (event?.pointerId !== undefined && handle.hasPointerCapture(event.pointerId)) {
+    if (
+      event?.pointerId !== undefined &&
+      handle.hasPointerCapture(event.pointerId)
+    ) {
       handle.releasePointerCapture(event.pointerId)
     }
   }
@@ -368,7 +386,7 @@ function initializeProctorDock() {
   })
 }
 
-function getUserFacingWarningCopy(violation = {}) {
+function getUserFacingWarningCopy (violation = {}) {
   const mappedCopy = USER_FACING_WARNING_COPY[violation.type]
 
   if (mappedCopy) {
@@ -384,7 +402,7 @@ function getUserFacingWarningCopy(violation = {}) {
   }
 }
 
-function renderVideoFeedState() {
+function renderVideoFeedState () {
   const videoBox = document.getElementById('proctorVideoBox')
   const statusText = document.getElementById('videoAiStatusText')
   const statusBadge = document.getElementById('videoAiStatusBadge')
@@ -395,7 +413,17 @@ function renderVideoFeedState() {
   const warningText = document.getElementById('videoWarningText')
   const warningStack = document.getElementById('videoWarningStack')
 
-  if (!videoBox || !statusText || !statusBadge || !statusHeadline || !warningCount || !updated || !warningOverlay || !warningText || !warningStack) {
+  if (
+    !videoBox ||
+    !statusText ||
+    !statusBadge ||
+    !statusHeadline ||
+    !warningCount ||
+    !updated ||
+    !warningOverlay ||
+    !warningText ||
+    !warningStack
+  ) {
     return
   }
 
@@ -406,8 +434,8 @@ function renderVideoFeedState() {
   const normalizedState = hasWarnings
     ? 'warning'
     : hasAdvisories
-      ? 'running'
-      : (aiProctoringStatus.state || 'idle')
+    ? 'running'
+    : aiProctoringStatus.state || 'idle'
 
   videoBox.classList.remove(
     'video-box-idle',
@@ -456,13 +484,18 @@ function renderVideoFeedState() {
   }
 
   videoBox.classList.add(modeToBoxClass[normalizedState] || 'video-box-idle')
-  statusBadge.classList.add(modeToBadgeClass[normalizedState] || 'video-status-badge-idle')
+  statusBadge.classList.add(
+    modeToBadgeClass[normalizedState] || 'video-status-badge-idle'
+  )
   statusBadge.innerText = modeToBadgeLabel[normalizedState] || 'Idle'
   statusHeadline.innerText = modeToHeadline[normalizedState] || 'Waiting'
   updated.innerText = `Updated ${formatLiveUpdateLabel()}`
-  warningCount.innerText = hasWarnings || hasAdvisories
-    ? `${warningCountValue + advisoryCountValue} item${warningCountValue + advisoryCountValue > 1 ? 's' : ''}`
-    : lastProctorPayloadAt
+  warningCount.innerText =
+    hasWarnings || hasAdvisories
+      ? `${warningCountValue + advisoryCountValue} item${
+          warningCountValue + advisoryCountValue > 1 ? 's' : ''
+        }`
+      : lastProctorPayloadAt
       ? 'Feed clear'
       : 'Waiting'
 
@@ -473,7 +506,12 @@ function renderVideoFeedState() {
     warningText.innerText = primaryWarning
     warningStack.innerHTML = liveAiWarnings
       .slice(0, 3)
-      .map(warning => `<div class="video-warning-pill video-warning-pill-warning">${escapeHtml(warning)}</div>`)
+      .map(
+        warning =>
+          `<div class="video-warning-pill video-warning-pill-warning">${escapeHtml(
+            warning
+          )}</div>`
+      )
       .join('')
     return
   }
@@ -481,10 +519,16 @@ function renderVideoFeedState() {
   warningOverlay.hidden = true
 
   if (hasAdvisories) {
-    statusText.innerText = 'Monitoring is active. Keep the user visible and centered.'
+    statusText.innerText =
+      'Monitoring is active. Keep the user visible and centered.'
     warningStack.innerHTML = liveAiAdvisories
       .slice(0, 2)
-      .map(advisory => `<div class="video-warning-pill video-warning-pill-info">${escapeHtml(advisory)}</div>`)
+      .map(
+        advisory =>
+          `<div class="video-warning-pill video-warning-pill-info">${escapeHtml(
+            advisory
+          )}</div>`
+      )
       .join('')
     return
   }
@@ -492,10 +536,11 @@ function renderVideoFeedState() {
   statusText.innerText = lastProctorPayloadAt
     ? 'Monitoring is active and the feed is clear.'
     : 'Waiting for live feed...'
-  warningStack.innerHTML = '<div class="video-warning-pill video-warning-pill-neutral">Live feed is clear</div>'
+  warningStack.innerHTML =
+    '<div class="video-warning-pill video-warning-pill-neutral">Live feed is clear</div>'
 }
 
-function renderTopWarningBanner() {
+function renderTopWarningBanner () {
   const banner = document.getElementById('liveWarningBanner')
   const badge = document.getElementById('liveWarningBannerBadge')
   const title = document.getElementById('liveWarningBannerTitle')
@@ -505,7 +550,16 @@ function renderTopWarningBanner() {
   const updated = document.getElementById('liveWarningBannerUpdated')
   const list = document.getElementById('liveWarningBannerList')
 
-  if (!banner || !badge || !title || !text || !count || !state || !updated || !list) {
+  if (
+    !banner ||
+    !badge ||
+    !title ||
+    !text ||
+    !count ||
+    !state ||
+    !updated ||
+    !list
+  ) {
     return
   }
 
@@ -528,22 +582,36 @@ function renderTopWarningBanner() {
   banner.classList.add(`live-warning-banner-${mode}`)
   badge.classList.add(`live-warning-badge-${mode}`)
 
-  badge.innerText = mode === 'error' ? 'Action Needed' : mode === 'warning' ? 'Advisory' : 'Stable'
+  badge.innerText =
+    mode === 'error'
+      ? 'Action Needed'
+      : mode === 'warning'
+      ? 'Advisory'
+      : 'Stable'
   count.innerText = String(totalActive)
   state.innerText = lastProctorPayloadAt ? 'Live' : 'Connecting'
   updated.innerText = formatLiveUpdateLabel()
 
   if (warningCount > 0) {
-    title.innerText = `${warningCount} live warning${warningCount > 1 ? 's' : ''} detected`
-    text.innerText = 'The live AI feed is currently detecting issues that may become recorded exam violations if they continue.'
+    title.innerText = `${warningCount} live warning${
+      warningCount > 1 ? 's' : ''
+    } detected`
+    text.innerText =
+      'The live AI feed is currently detecting issues that may become recorded exam violations if they continue.'
   } else if (advisoryCount > 0) {
-    title.innerText = `${advisoryCount} monitoring advisory${advisoryCount > 1 ? 'ies' : ''} visible`
-    text.innerText = 'These advisories are informational signals from the live feed. Review them and keep the candidate properly positioned and visible.'
+    title.innerText = `${advisoryCount} monitoring advisory${
+      advisoryCount > 1 ? 'ies' : ''
+    } visible`
+    text.innerText =
+      'These advisories are informational signals from the live feed. Review them and keep the candidate properly positioned and visible.'
   } else {
-    title.innerText = lastProctorPayloadAt ? 'Live monitoring is active' : 'Connecting live monitoring'
+    title.innerText = lastProctorPayloadAt
+      ? 'Live monitoring is active'
+      : 'Connecting live monitoring'
     text.innerText = lastProctorPayloadAt
       ? `The live feed is updating normally. Last update: ${formatLiveUpdateLabel()}.`
-      : (aiProctoringStatus.detail || 'AI monitoring is connecting to the live feed.')
+      : aiProctoringStatus.detail ||
+        'AI monitoring is connecting to the live feed.'
   }
 
   const pills = [
@@ -552,11 +620,18 @@ function renderTopWarningBanner() {
   ].slice(0, 5)
 
   list.innerHTML = pills.length
-    ? pills.map(item => `<div class="live-warning-banner-pill live-warning-banner-pill-${item.cls}">${escapeHtml(item.message)}</div>`).join('')
+    ? pills
+        .map(
+          item =>
+            `<div class="live-warning-banner-pill live-warning-banner-pill-${
+              item.cls
+            }">${escapeHtml(item.message)}</div>`
+        )
+        .join('')
     : '<div class="live-warning-banner-pill live-warning-banner-pill-neutral">No live warnings</div>'
 }
 
-function setLiveAIWarnings(warnings = [], advisories = []) {
+function setLiveAIWarnings (warnings = [], advisories = []) {
   liveAiWarnings = Array.isArray(warnings)
     ? warnings.filter(Boolean).slice(0, 3)
     : []
@@ -567,7 +642,7 @@ function setLiveAIWarnings(warnings = [], advisories = []) {
   renderTopWarningBanner()
 }
 
-function setAIProctoringStatus(status = {}) {
+function setAIProctoringStatus (status = {}) {
   aiProctoringStatus = {
     state: status.state || 'idle',
     detail: status.detail || 'AI proctoring status is unavailable.'
@@ -576,13 +651,13 @@ function setAIProctoringStatus(status = {}) {
   renderTopWarningBanner()
 }
 
-function showViolationStatus(violation = {}) {
+function showViolationStatus (violation = {}) {
   const warningCopy = getUserFacingWarningCopy(violation)
   const severity = violation.severity === 'info' ? 'info' : 'error'
   setExamStatus(`${warningCopy.title}. ${warningCopy.detail}`, severity)
 }
 
-function renderDevMonitoringState(settings = {}) {
+function renderDevMonitoringState (settings = {}) {
   const panel = document.getElementById('devMonitoringPanel')
   const toggle = document.getElementById('devBlockedAppToggle')
   const message = document.getElementById('devMonitoringMessage')
@@ -606,7 +681,7 @@ function renderDevMonitoringState(settings = {}) {
     : 'Blocked app monitoring is disabled in development until you turn it on here.'
 }
 
-async function loadDevMonitoringSettings() {
+async function loadDevMonitoringSettings () {
   if (!window.electronAPI?.getExamDevSettings) {
     return
   }
@@ -619,7 +694,7 @@ async function loadDevMonitoringSettings() {
   }
 }
 
-function registerDevMonitoringControls() {
+function registerDevMonitoringControls () {
   const toggle = document.getElementById('devBlockedAppToggle')
 
   if (!toggle || !window.electronAPI?.setBlockedAppMonitoringEnabled) {
@@ -628,7 +703,9 @@ function registerDevMonitoringControls() {
 
   toggle.addEventListener('change', async () => {
     try {
-      const settings = await window.electronAPI.setBlockedAppMonitoringEnabled(toggle.checked)
+      const settings = await window.electronAPI.setBlockedAppMonitoringEnabled(
+        toggle.checked
+      )
       renderDevMonitoringState(settings)
     } catch (error) {
       toggle.checked = blockedAppMonitoringEnabled
@@ -637,7 +714,7 @@ function registerDevMonitoringControls() {
   })
 }
 
-function renderWarningHistory(violations = []) {
+function renderWarningHistory (violations = []) {
   const historyList = document.getElementById('warningHistoryList')
 
   if (!historyList) {
@@ -649,7 +726,8 @@ function renderWarningHistory(violations = []) {
     : []
 
   if (recentViolations.length === 0) {
-    historyList.innerHTML = '<li style="color: #475467; font-size: 14px;">No warnings recorded yet.</li>'
+    historyList.innerHTML =
+      '<li style="color: #475467; font-size: 14px;">No warnings recorded yet.</li>'
     return
   }
 
@@ -658,7 +736,9 @@ function renderWarningHistory(violations = []) {
       const warningCopy = getUserFacingWarningCopy(violation)
       const detail = escapeHtml(warningCopy.detail)
       const type = escapeHtml(warningCopy.title)
-      const timestamp = escapeHtml(formatViolationTimestamp(violation.createdAt))
+      const timestamp = escapeHtml(
+        formatViolationTimestamp(violation.createdAt)
+      )
       const severityLabel = escapeHtml(
         violation.severity === 'info' ? 'Info' : 'Warning'
       )
@@ -674,7 +754,7 @@ function renderWarningHistory(violations = []) {
     .join('')
 }
 
-function renderQuestionSummary(questions = []) {
+function renderQuestionSummary (questions = []) {
   const questionList = document.getElementById('questionSummaryList')
 
   if (!questionList) {
@@ -682,7 +762,8 @@ function renderQuestionSummary(questions = []) {
   }
 
   if (!Array.isArray(questions) || questions.length === 0) {
-    questionList.innerHTML = '<li style="color: #475467; font-size: 14px;">No question summary is available.</li>'
+    questionList.innerHTML =
+      '<li style="color: #475467; font-size: 14px;">No question summary is available.</li>'
     return
   }
 
@@ -691,11 +772,17 @@ function renderQuestionSummary(questions = []) {
       const questionText = escapeHtml(question.question || 'Untitled question')
       const options = Array.isArray(question.options) ? question.options : []
 
-      const optionMarkup = options.length === 0
-        ? '<li style="color: #475467; font-size: 13px;">No options listed.</li>'
-        : options
-            .map(option => `<li style="font-size: 13px; color: #344054;">${escapeHtml(option)}</li>`)
-            .join('')
+      const optionMarkup =
+        options.length === 0
+          ? '<li style="color: #475467; font-size: 13px;">No options listed.</li>'
+          : options
+              .map(
+                option =>
+                  `<li style="font-size: 13px; color: #344054;">${escapeHtml(
+                    option
+                  )}</li>`
+              )
+              .join('')
 
       return `
         <li style="padding: 12px; border: 1px solid #eaecf0; border-radius: 10px; background: #f8fafc;">
@@ -709,7 +796,7 @@ function renderQuestionSummary(questions = []) {
     .join('')
 }
 
-function renderWarningHistory(violations = []) {
+function renderWarningHistory (violations = []) {
   const historyList = document.getElementById('warningHistoryList')
 
   if (!historyList) {
@@ -721,7 +808,8 @@ function renderWarningHistory(violations = []) {
     : []
 
   if (recentViolations.length === 0) {
-    historyList.innerHTML = '<li class="empty-list-message">No warnings recorded yet.</li>'
+    historyList.innerHTML =
+      '<li class="empty-list-message">No warnings recorded yet.</li>'
     return
   }
 
@@ -730,8 +818,12 @@ function renderWarningHistory(violations = []) {
       const warningCopy = getUserFacingWarningCopy(violation)
       const detail = escapeHtml(warningCopy.detail)
       const type = escapeHtml(warningCopy.title)
-      const timestamp = escapeHtml(formatViolationTimestamp(violation.createdAt))
-      const severityLabel = escapeHtml(violation.severity === 'info' ? 'Info' : 'Warning')
+      const timestamp = escapeHtml(
+        formatViolationTimestamp(violation.createdAt)
+      )
+      const severityLabel = escapeHtml(
+        violation.severity === 'info' ? 'Info' : 'Warning'
+      )
 
       return `
         <li class="summary-card">
@@ -744,7 +836,7 @@ function renderWarningHistory(violations = []) {
     .join('')
 }
 
-function renderQuestionSummary(questions = []) {
+function renderQuestionSummary (questions = []) {
   const questionList = document.getElementById('questionSummaryList')
 
   if (!questionList) {
@@ -752,7 +844,8 @@ function renderQuestionSummary(questions = []) {
   }
 
   if (!Array.isArray(questions) || questions.length === 0) {
-    questionList.innerHTML = '<li class="empty-list-message">No question summary is available.</li>'
+    questionList.innerHTML =
+      '<li class="empty-list-message">No question summary is available.</li>'
     return
   }
 
@@ -761,11 +854,15 @@ function renderQuestionSummary(questions = []) {
       const questionText = escapeHtml(question.question || 'Untitled question')
       const options = Array.isArray(question.options) ? question.options : []
 
-      const optionMarkup = options.length === 0
-        ? '<li class="summary-card-detail">No options listed.</li>'
-        : options
-            .map(option => `<li class="summary-card-detail">${escapeHtml(option)}</li>`)
-            .join('')
+      const optionMarkup =
+        options.length === 0
+          ? '<li class="summary-card-detail">No options listed.</li>'
+          : options
+              .map(
+                option =>
+                  `<li class="summary-card-detail">${escapeHtml(option)}</li>`
+              )
+              .join('')
 
       return `
         <li class="summary-card">
@@ -779,12 +876,14 @@ function renderQuestionSummary(questions = []) {
     .join('')
 }
 
-async function loadQuestionSummary() {
+async function loadQuestionSummary () {
   try {
     const response = await fetchWithSession(`${API_BASE_URL}/api/questions`)
 
     if (!response) {
-      markBackendDisconnected('We could not load the question summary. Trying to reconnect...')
+      markBackendDisconnected(
+        'We could not load the question summary. Trying to reconnect...'
+      )
       return false
     }
 
@@ -796,12 +895,14 @@ async function loadQuestionSummary() {
     renderQuestionSummary(data)
     return true
   } catch (error) {
-    markBackendDisconnected('We could not load the question summary. Trying to reconnect...')
+    markBackendDisconnected(
+      'We could not load the question summary. Trying to reconnect...'
+    )
     throw error
   }
 }
 
-function ensureAudioContext() {
+function ensureAudioContext () {
   if (!window.AudioContext && !window.webkitAudioContext) {
     return null
   }
@@ -814,7 +915,7 @@ function ensureAudioContext() {
   return audioContext
 }
 
-async function unlockAlertAudio() {
+async function unlockAlertAudio () {
   const context = ensureAudioContext()
 
   if (!context || audioUnlocked) {
@@ -832,7 +933,7 @@ async function unlockAlertAudio() {
   }
 }
 
-function registerAudioUnlockHandlers() {
+function registerAudioUnlockHandlers () {
   const unlock = () => {
     unlockAlertAudio()
   }
@@ -841,7 +942,7 @@ function registerAudioUnlockHandlers() {
   window.addEventListener('keydown', unlock, { passive: true })
 }
 
-function playWarningBeep() {
+function playWarningBeep () {
   const context = ensureAudioContext()
 
   if (!context || context.state !== 'running') {
@@ -854,7 +955,6 @@ function playWarningBeep() {
   envelope.gain.setValueAtTime(0.001, startAt)
   envelope.gain.exponentialRampToValueAtTime(0.5, startAt + 0.01)
   envelope.gain.exponentialRampToValueAtTime(0.001, startAt + 0.45)
-
   ;[1200, 900, 1200].forEach((frequency, index) => {
     const oscillator = context.createOscillator()
     const segmentStart = startAt + index * 0.15
@@ -866,13 +966,13 @@ function playWarningBeep() {
   })
 }
 
-function renderExamHeader(student) {
+function renderExamHeader (student) {
   document.getElementById('examStudentName').innerText = student.name
   document.getElementById('examStudentEmail').innerText = student.email
   document.getElementById('examTitle').innerText = student.exam
 }
 
-function updateSubmissionButton(isDisabled, label = 'Submit Exam') {
+function updateSubmissionButton (isDisabled, label = 'Submit Exam') {
   const submitButton = document.getElementById('submitExamButton')
 
   if (!submitButton) {
@@ -883,14 +983,14 @@ function updateSubmissionButton(isDisabled, label = 'Submit Exam') {
   submitButton.innerText = label
 }
 
-function setNavigationButtonsDisabled(isDisabled) {
+function setNavigationButtonsDisabled (isDisabled) {
   const buttons = document.querySelectorAll('.secondary-btn')
   buttons.forEach(button => {
     button.disabled = isDisabled
   })
 }
 
-function clearReconnectCheck() {
+function clearReconnectCheck () {
   if (!reconnectCheckTimerId) {
     return
   }
@@ -899,36 +999,45 @@ function clearReconnectCheck() {
   reconnectCheckTimerId = null
 }
 
-function setBackendDisconnectedState(isDisconnected, message) {
+function setBackendDisconnectedState (isDisconnected, message) {
   backendDisconnected = isDisconnected
 
   if (isDisconnected) {
     updateSubmissionButton(true, 'Backend Offline')
     setNavigationButtonsDisabled(true)
     setExamStatus(
-      message || 'Connection to the exam server was lost. We will keep trying to reconnect.',
+      message ||
+        'Connection to the exam server was lost. We will keep trying to reconnect.',
       'error'
     )
     return
   }
 
   setNavigationButtonsDisabled(false)
-  updateSubmissionButton(examSubmitted || isSubmitting, examSubmitted ? 'Submitted' : 'Submit Exam')
-  setExamStatus(message || 'Connection restored. You can continue your exam.', 'info')
+  updateSubmissionButton(
+    examSubmitted || isSubmitting,
+    examSubmitted ? 'Submitted' : 'Submit Exam'
+  )
+  setExamStatus(
+    message || 'Connection restored. You can continue your exam.',
+    'info'
+  )
 }
 
-async function checkBackendConnection() {
+async function checkBackendConnection () {
   const response = await fetchWithSession(`${API_BASE_URL}/api/session`)
 
   if (!response) {
-    markBackendDisconnected('We could not start the exam right now. Trying to reconnect...')
+    markBackendDisconnected(
+      'We could not start the exam right now. Trying to reconnect...'
+    )
     return false
   }
 
   return response.ok
 }
 
-function startReconnectChecks() {
+function startReconnectChecks () {
   if (reconnectCheckTimerId) {
     return
   }
@@ -942,19 +1051,22 @@ function startReconnectChecks() {
       }
 
       clearReconnectCheck()
-      setBackendDisconnectedState(false, 'Connection restored. You can continue your exam.')
+      setBackendDisconnectedState(
+        false,
+        'Connection restored. You can continue your exam.'
+      )
     } catch (error) {
       console.error('Reconnect check failed:', error)
     }
   }, EXAM_CONFIG.reconnectCheckIntervalMs)
 }
 
-function markBackendDisconnected(message) {
+function markBackendDisconnected (message) {
   setBackendDisconnectedState(true, message)
   startReconnectChecks()
 }
 
-function releaseExamResources() {
+function releaseExamResources () {
   if (examTimerId) {
     clearInterval(examTimerId)
     examTimerId = null
@@ -998,7 +1110,7 @@ function releaseExamResources() {
   resetLiveMonitoringState()
 }
 
-function formatCompletionLabel(value, fallback = 'Not available') {
+function formatCompletionLabel (value, fallback = 'Not available') {
   if (!value) {
     return fallback
   }
@@ -1010,7 +1122,7 @@ function formatCompletionLabel(value, fallback = 'Not available') {
     .join(' ')
 }
 
-function formatCompletionTimestamp(timestamp) {
+function formatCompletionTimestamp (timestamp) {
   if (!timestamp) {
     return 'Not available'
   }
@@ -1031,7 +1143,7 @@ function formatCompletionTimestamp(timestamp) {
   })
 }
 
-function renderCompletionScreen(reasonLabel, attempt = {}) {
+function renderCompletionScreen (reasonLabel, attempt = {}) {
   const warningCount = Number(attempt.violationCount || 0)
   const maxWarnings = Number(attempt.maxWarnings || MAX_WARNINGS)
   const submissionReason = formatCompletionLabel(
@@ -1064,16 +1176,18 @@ function renderCompletionScreen(reasonLabel, attempt = {}) {
           </div>
         </div>
         <p style="margin-top: 20px; color: #475467;">
-          ${shouldContactInvigilator
-            ? 'Please contact the invigilator if you need clarification about this submission.'
-            : 'If you have any questions, please contact the invigilator.'}
+          ${
+            shouldContactInvigilator
+              ? 'Please contact the invigilator if you need clarification about this submission.'
+              : 'If you have any questions, please contact the invigilator.'
+          }
         </p>
       </div>
     </div>
   `
 }
 
-function finishExamUI(reason) {
+function finishExamUI (reason) {
   examSubmitted = true
   releaseExamResources()
 
@@ -1090,22 +1204,27 @@ function finishExamUI(reason) {
   )
 }
 
-async function reportViolation(type, detail, severity = 'warning') {
+async function reportViolation (type, detail, severity = 'warning') {
   if (!examStarted || examSubmitted) {
     return
   }
 
   try {
-    const response = await fetchWithSession(`${API_BASE_URL}/api/exam/violations`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ type, detail, severity })
-    })
+    const response = await fetchWithSession(
+      `${API_BASE_URL}/api/exam/violations`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ type, detail, severity })
+      }
+    )
 
     if (!response) {
-      markBackendDisconnected('We could not reach the exam server while recording this event. Trying to reconnect...')
+      markBackendDisconnected(
+        'We could not reach the exam server while recording this event. Trying to reconnect...'
+      )
       return
     }
 
@@ -1114,7 +1233,10 @@ async function reportViolation(type, detail, severity = 'warning') {
     if (response.ok && data.attempt) {
       if (backendDisconnected) {
         clearReconnectCheck()
-        setBackendDisconnectedState(false, 'Connection restored. Your exam is back online.')
+        setBackendDisconnectedState(
+          false,
+          'Connection restored. Your exam is back online.'
+        )
       }
       currentAttempt = data.attempt
       updateViolationCount(data.attempt.violationCount)
@@ -1124,7 +1246,11 @@ async function reportViolation(type, detail, severity = 'warning') {
       }
 
       if (data.attempt.status === 'submitted') {
-        setExamStatus(data.message || `Exam terminated after reaching ${MAX_WARNINGS} warnings.`, 'error')
+        setExamStatus(
+          data.message ||
+            `Exam terminated after reaching ${MAX_WARNINGS} warnings.`,
+          'error'
+        )
         finishExamUI(data.attempt.submissionReason || 'warning_limit_reached')
       } else {
         showViolationStatus({ type, detail, severity })
@@ -1132,11 +1258,13 @@ async function reportViolation(type, detail, severity = 'warning') {
     }
   } catch (error) {
     console.error('Failed to report violation:', error)
-    markBackendDisconnected('We could not reach the exam server while recording this event. Trying to reconnect...')
+    markBackendDisconnected(
+      'We could not reach the exam server while recording this event. Trying to reconnect...'
+    )
   }
 }
 
-function startTimer(totalSeconds) {
+function startTimer (totalSeconds) {
   const timerElement = document.getElementById('timer')
   let remainingSeconds = totalSeconds
 
@@ -1154,11 +1282,15 @@ function startTimer(totalSeconds) {
   }, 1000)
 }
 
-async function loadQuestionPaper(questionPaperName) {
-  const response = await fetchWithSession(`${API_BASE_URL}/files/${questionPaperName}`)
+async function loadQuestionPaper (questionPaperName) {
+  const response = await fetchWithSession(
+    `${API_BASE_URL}/files/${questionPaperName}`
+  )
 
   if (!response) {
-    markBackendDisconnected('We could not load the question paper. Trying to reconnect...')
+    markBackendDisconnected(
+      'We could not load the question paper. Trying to reconnect...'
+    )
     return false
   }
 
@@ -1172,13 +1304,15 @@ async function loadQuestionPaper(questionPaperName) {
   return true
 }
 
-async function startExamAttempt() {
+async function startExamAttempt () {
   const response = await fetchWithSession(`${API_BASE_URL}/api/exam/start`, {
     method: 'POST'
   })
 
   if (!response) {
-    markBackendDisconnected('We could not start the exam right now. Trying to reconnect...')
+    markBackendDisconnected(
+      'We could not start the exam right now. Trying to reconnect...'
+    )
     return false
   }
 
@@ -1192,7 +1326,10 @@ async function startExamAttempt() {
   currentAttempt = data.attempt
   if (backendDisconnected) {
     clearReconnectCheck()
-    setBackendDisconnectedState(false, 'Connection restored. You can continue your exam.')
+    setBackendDisconnectedState(
+      false,
+      'Connection restored. You can continue your exam.'
+    )
   }
   updateViolationCount(data.attempt.violationCount)
   renderWarningHistory(data.attempt.violations)
@@ -1210,14 +1347,16 @@ async function startExamAttempt() {
   return true
 }
 
-async function loadExam() {
+async function loadExam () {
   setExamStatus('Loading your exam...', 'info')
 
   try {
     const response = await fetchWithSession(`${API_BASE_URL}/api/exam`)
 
     if (!response) {
-      markBackendDisconnected('We could not load your exam. Trying to reconnect...')
+      markBackendDisconnected(
+        'We could not load your exam. Trying to reconnect...'
+      )
       return
     }
 
@@ -1262,11 +1401,13 @@ async function loadExam() {
     setExamStatus('Your exam is ready. Stay focused and good luck.', 'info')
   } catch (error) {
     console.error('Error loading exam:', error)
-    markBackendDisconnected('We could not connect to the exam server. Trying to reconnect...')
+    markBackendDisconnected(
+      'We could not connect to the exam server. Trying to reconnect...'
+    )
   }
 }
 
-async function submitExam(reason = 'manual_submit') {
+async function submitExam (reason = 'manual_submit') {
   if (examSubmitted || isSubmitting) {
     return
   }
@@ -1285,14 +1426,19 @@ async function submitExam(reason = 'manual_submit') {
     })
 
     if (!response) {
-      markBackendDisconnected('We could not reach the exam server to submit your exam. Trying to reconnect...')
+      markBackendDisconnected(
+        'We could not reach the exam server to submit your exam. Trying to reconnect...'
+      )
       return
     }
 
     const data = await response.json()
 
     if (!response.ok || !data.success) {
-      setExamStatus(data.message || 'We could not submit your exam right now.', 'error')
+      setExamStatus(
+        data.message || 'We could not submit your exam right now.',
+        'error'
+      )
       return
     }
 
@@ -1303,20 +1449,28 @@ async function submitExam(reason = 'manual_submit') {
     finishExamUI(reason)
   } catch (error) {
     console.error('Submit error:', error)
-    markBackendDisconnected('We could not submit your exam right now. Trying to reconnect...')
+    markBackendDisconnected(
+      'We could not submit your exam right now. Trying to reconnect...'
+    )
   } finally {
     isSubmitting = false
     if (!backendDisconnected) {
-      updateSubmissionButton(examSubmitted, examSubmitted ? 'Submitted' : 'Submit Exam')
+      updateSubmissionButton(
+        examSubmitted,
+        examSubmitted ? 'Submitted' : 'Submit Exam'
+      )
     }
   }
 }
 
-async function startCamera() {
+async function startCamera () {
   const video = document.getElementById('video')
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    setExamStatus('You need a working camera before the exam can start.', 'error')
+    setExamStatus(
+      'You need a working camera before the exam can start.',
+      'error'
+    )
     return false
   }
 
@@ -1327,7 +1481,10 @@ async function startCamera() {
     const hasVideoInput = devices.some(device => device.kind === 'videoinput')
 
     if (!hasVideoInput) {
-      setExamStatus('No camera was detected. Connect one to continue with the exam.', 'error')
+      setExamStatus(
+        'No camera was detected. Connect one to continue with the exam.',
+        'error'
+      )
       return false
     }
 
@@ -1341,7 +1498,10 @@ async function startCamera() {
       setAIProctoringStatus(serviceStatus)
 
       if (serviceStatus?.state === 'error') {
-        setExamStatus(serviceStatus.detail || 'AI proctoring could not be started.', 'error')
+        setExamStatus(
+          serviceStatus.detail || 'AI proctoring could not be started.',
+          'error'
+        )
         return false
       }
     }
@@ -1357,7 +1517,10 @@ async function startCamera() {
     return true
   } catch (error) {
     console.error('Camera error:', error)
-    setExamStatus('We could not access your camera. Check camera permissions and try again.', 'error')
+    setExamStatus(
+      'We could not access your camera. Check camera permissions and try again.',
+      'error'
+    )
     setAIProctoringStatus({
       state: 'error',
       detail: 'Camera access failed. AI monitoring could not continue.'
@@ -1374,17 +1537,47 @@ async function startCamera() {
 // Violation type mapping — keys match what your backend detectors return
 const PROCTORING_VIOLATION_MAP = {
   // Existing checks
-  'No face detected':              { type: 'face_absent',        detail: 'Candidate face not visible in camera.' },
-  'Multiple faces detected':       { type: 'multiple_faces',     detail: 'More than one face detected in frame.' },
-  'Phone detected':                { type: 'phone_detected',     detail: 'A phone was detected in the camera frame.' },
-  'Looking away from screen':      { type: 'gaze_away',          detail: 'Candidate gaze directed away from screen.' },
-  'Talking detected':              { type: 'lip_movement',       detail: 'Lip movement suggesting speech detected.' },
-  'Camera may be blocked':         { type: 'camera_blocked',     detail: 'Lighting anomaly — camera may be covered.' },
+  'No face detected': {
+    type: 'face_absent',
+    detail: 'Candidate face not visible in camera.'
+  },
+  'Multiple faces detected': {
+    type: 'multiple_faces',
+    detail: 'More than one face detected in frame.'
+  },
+  'Phone detected': {
+    type: 'phone_detected',
+    detail: 'A phone was detected in the camera frame.'
+  },
+  'Looking away from screen': {
+    type: 'gaze_away',
+    detail: 'Candidate gaze directed away from screen.'
+  },
+  'Talking detected': {
+    type: 'lip_movement',
+    detail: 'Lip movement suggesting speech detected.'
+  },
+  'Camera may be blocked': {
+    type: 'camera_blocked',
+    detail: 'Lighting anomaly — camera may be covered.'
+  },
   // Additional checks
-  'Abnormal blink rate detected':  { type: 'blink_anomaly',      detail: 'Unusual blink pattern detected.' },
-  'Lighting too dark — face not visible': { type: 'lighting_dark', detail: 'Camera feed too dark to verify candidate.' },
-  'Background movement detected':  { type: 'background_motion',  detail: 'Unexpected movement detected in background.' },
-  'Identity could not be verified':{ type: 'identity_mismatch',  detail: 'Candidate face does not match registered identity.' },
+  'Abnormal blink rate detected': {
+    type: 'blink_anomaly',
+    detail: 'Unusual blink pattern detected.'
+  },
+  'Lighting too dark — face not visible': {
+    type: 'lighting_dark',
+    detail: 'Camera feed too dark to verify candidate.'
+  },
+  'Background movement detected': {
+    type: 'background_motion',
+    detail: 'Unexpected movement detected in background.'
+  },
+  'Identity could not be verified': {
+    type: 'identity_mismatch',
+    detail: 'Candidate face does not match registered identity.'
+  }
 }
 
 PROCTORING_VIOLATION_MAP['Lighting too dark - face not visible'] = {
@@ -1399,17 +1592,19 @@ PROCTORING_VIOLATION_MAP['Lighting too dark - face not visible'] = {
 const activeViolations = new Set()
 const pendingAiViolations = new Map()
 
-function getAiWarningDwellMs(message) {
-  for (const [pattern, dwellMs] of Object.entries(AI_WARNING_DWELL_MS)) {
+function getAiWarningDwellMs (message) {
+  for (const [pattern, dwellMs] of Object.entries(
+    EXAM_CONFIG.aiWarningDwellMs
+  )) {
     if (message === pattern || message.startsWith(`${pattern}:`)) {
       return dwellMs
     }
   }
 
-  return 2500
+  return EXAM_CONFIG.aiWarningDefaultDwellMs
 }
 
-function processIncomingAiViolations(incomingViolations) {
+function processIncomingAiViolations (incomingViolations) {
   const now = Date.now()
 
   for (const message of incomingViolations) {
@@ -1456,16 +1651,16 @@ function processIncomingAiViolations(incomingViolations) {
   }
 }
 
-function startFrameCapture(video) {
+function startFrameCapture (video) {
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')
 
-  const WS_URL = (window.PROCTOR_WS_URL) || 'ws://localhost:8000/proctor'
+  const WS_URL = window.PROCTOR_WS_URL || 'ws://localhost:8000/proctor'
   let ws = null
   let intervalId = null
   let hasConnectedOnce = false
 
-  function connect() {
+  function connect () {
     ws = new WebSocket(WS_URL)
 
     ws.onopen = () => {
@@ -1482,7 +1677,7 @@ function startFrameCapture(video) {
       intervalId = setInterval(sendFrame, 1000 / 5)
     }
 
-    ws.onmessage = (event) => {
+    ws.onmessage = event => {
       if (!examStarted || examSubmitted) return
 
       let result
@@ -1528,11 +1723,14 @@ function startFrameCapture(video) {
 
       // ── Restore status once all violations clear ─────────────────────────
       if (incomingViolations.size === 0) {
-        setExamStatus('Your camera is connected. You are ready to begin.', 'info')
+        setExamStatus(
+          'Your camera is connected. You are ready to begin.',
+          'info'
+        )
       }
     }
 
-    ws.onerror = (err) => {
+    ws.onerror = err => {
       console.warn('[Proctor] WebSocket error:', err)
     }
 
@@ -1553,7 +1751,7 @@ function startFrameCapture(video) {
     }
   }
 
-  function sendFrame() {
+  function sendFrame () {
     if (!ws || ws.readyState !== WebSocket.OPEN) return
     if (!video.videoWidth) return
 
@@ -1567,11 +1765,11 @@ function startFrameCapture(video) {
   connect()
 }
 
-function startFrameCaptureWithOverlay(video) {
+function startFrameCaptureWithOverlay (video) {
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')
 
-  const WS_URL = (window.PROCTOR_WS_URL) || 'ws://localhost:8000/proctor'
+  const WS_URL = window.PROCTOR_WS_URL || 'ws://localhost:8000/proctor'
   let ws = null
   let intervalId = null
   let reconnectTimeoutId = null
@@ -1583,7 +1781,7 @@ function startFrameCaptureWithOverlay(video) {
     detail: 'Connecting the live feed to AI monitoring...'
   })
 
-  function connect() {
+  function connect () {
     if (stopped) {
       return
     }
@@ -1610,7 +1808,7 @@ function startFrameCaptureWithOverlay(video) {
       intervalId = setInterval(sendFrame, EXAM_CONFIG.proctorFrameIntervalMs)
     }
 
-    ws.onmessage = (event) => {
+    ws.onmessage = event => {
       if (!examStarted || examSubmitted) {
         return
       }
@@ -1634,7 +1832,10 @@ function startFrameCaptureWithOverlay(video) {
 
       const incomingViolations = new Set(result.violations || [])
       const incomingAdvisories = new Set(result.advisories || [])
-      setLiveAIWarnings(Array.from(incomingViolations), Array.from(incomingAdvisories))
+      setLiveAIWarnings(
+        Array.from(incomingViolations),
+        Array.from(incomingAdvisories)
+      )
 
       processIncomingAiViolations(incomingViolations)
 
@@ -1643,17 +1844,23 @@ function startFrameCaptureWithOverlay(video) {
           state: 'running',
           detail: 'Live monitoring is active and showing advisory signals.'
         })
-        setExamStatus('AI monitoring has a few live advisories. Review the top banner and keep the candidate properly framed.', 'info')
+        setExamStatus(
+          'AI monitoring has a few live advisories. Review the top banner and keep the candidate properly framed.',
+          'info'
+        )
       } else if (incomingViolations.size === 0) {
         setAIProctoringStatus({
           state: 'running',
           detail: 'Live monitoring is active and the feed is clear.'
         })
-        setExamStatus('Your camera is connected. You are ready to begin.', 'info')
+        setExamStatus(
+          'Your camera is connected. You are ready to begin.',
+          'info'
+        )
       }
     }
 
-    ws.onerror = (err) => {
+    ws.onerror = err => {
       console.warn('[Proctor] WebSocket error:', err)
     }
 
@@ -1684,7 +1891,7 @@ function startFrameCaptureWithOverlay(video) {
     }
   }
 
-  function sendFrame() {
+  function sendFrame () {
     if (!ws || ws.readyState !== WebSocket.OPEN) return
     if (!video.videoWidth) return
     if (ws.bufferedAmount > 0) return
@@ -1699,7 +1906,7 @@ function startFrameCaptureWithOverlay(video) {
   connect()
 
   return {
-    stop() {
+    stop () {
       stopped = true
       clearInterval(intervalId)
       clearTimeout(reconnectTimeoutId)
@@ -1720,8 +1927,7 @@ function startFrameCaptureWithOverlay(video) {
   }
 }
 
-
-function shouldLogBlockedProcess(processName) {
+function shouldLogBlockedProcess (processName) {
   const key = String(processName || '').toLowerCase()
   const previousLoggedAt = recentBlockedAppWarnings.get(key) || 0
   const now = Date.now()
@@ -1734,7 +1940,7 @@ function shouldLogBlockedProcess(processName) {
   return true
 }
 
-function getBlockedShortcutMessage(event) {
+function getBlockedShortcutMessage (event) {
   const key = String(event.key || '').toLowerCase()
   const usesPrimaryModifier = event.ctrlKey || event.metaKey
 
@@ -1761,23 +1967,29 @@ function getBlockedShortcutMessage(event) {
   return null
 }
 
-async function goBackToDashboard() {
+async function goBackToDashboard () {
   if (examSubmitted) {
     window.location = 'dashboard.html'
     return
   }
 
-  const shouldLeave = window.confirm('Leaving the exam will submit it immediately. Do you want to continue?')
+  const shouldLeave = window.confirm(
+    'Leaving the exam will submit it immediately. Do you want to continue?'
+  )
 
   if (!shouldLeave) {
     return
   }
 
-  await reportViolation('left_exam_view', 'Candidate left the exam view before completion.', 'warning')
+  await reportViolation(
+    'left_exam_view',
+    'Candidate left the exam view before completion.',
+    'warning'
+  )
   await submitExam('left_exam')
 }
 
-function registerExamGuards() {
+function registerExamGuards () {
   document.addEventListener('contextmenu', event => event.preventDefault())
   document.addEventListener('copy', event => event.preventDefault())
   document.addEventListener('keydown', event => {
@@ -1793,7 +2005,11 @@ function registerExamGuards() {
       detail: shortcutMessage,
       severity: 'warning'
     })
-    reportViolation('blocked_shortcut', `Candidate attempted a blocked shortcut: ${shortcutMessage}`, 'warning')
+    reportViolation(
+      'blocked_shortcut',
+      `Candidate attempted a blocked shortcut: ${shortcutMessage}`,
+      'warning'
+    )
   })
 
   window.addEventListener('blur', () => {
@@ -1806,9 +2022,10 @@ function registerExamGuards() {
     const blurSeverity = blurEventCount === 1 ? 'info' : 'warning'
     showViolationStatus({
       type: 'window_blur',
-      detail: blurSeverity === 'info'
-        ? 'Focus left the exam window once. Please stay on the exam screen.'
-        : 'You switched focus away from the exam window.',
+      detail:
+        blurSeverity === 'info'
+          ? 'Focus left the exam window once. Please stay on the exam screen.'
+          : 'You switched focus away from the exam window.',
       severity: blurSeverity
     })
     reportViolation(
@@ -1835,9 +2052,10 @@ function registerExamGuards() {
       const visibilitySeverity = visibilityEventCount === 1 ? 'info' : 'warning'
       showViolationStatus({
         type: 'visibility_hidden',
-        detail: visibilitySeverity === 'info'
-          ? 'The exam page was hidden once. Please stay on the exam page.'
-          : 'You switched away from the exam page.',
+        detail:
+          visibilitySeverity === 'info'
+            ? 'The exam page was hidden once. Please stay on the exam page.'
+            : 'You switched away from the exam page.',
         severity: visibilitySeverity
       })
       reportViolation(
@@ -1866,7 +2084,11 @@ function registerExamGuards() {
         detail: 'You exited fullscreen mode during the exam.',
         severity: 'warning'
       })
-      reportViolation('fullscreen_exit', 'Candidate exited fullscreen mode during the exam.', 'warning')
+      reportViolation(
+        'fullscreen_exit',
+        'Candidate exited fullscreen mode during the exam.',
+        'warning'
+      )
     })
   }
 
@@ -1890,7 +2112,11 @@ function registerExamGuards() {
         detail: `A blocked app was detected and closed automatically: ${blockedList}.`,
         severity: 'warning'
       })
-      reportViolation('blocked_network_app', `Detected and closed blocked application(s): ${blockedList}.`, 'warning')
+      reportViolation(
+        'blocked_network_app',
+        `Detected and closed blocked application(s): ${blockedList}.`,
+        'warning'
+      )
     })
   }
 
@@ -1903,7 +2129,11 @@ function registerExamGuards() {
 
 window.addEventListener('beforeunload', () => {
   if (!examSubmitted) {
-    reportViolation('page_unload', 'Exam page attempted to unload before submission.', 'warning')
+    reportViolation(
+      'page_unload',
+      'Exam page attempted to unload before submission.',
+      'warning'
+    )
   }
 
   releaseExamResources()
