@@ -347,18 +347,18 @@ def _process_frame(frame: np.ndarray, state: SessionState) -> dict:
     violations = []
     advisories = []
 
-    if exposure_gate("no_face", face_result.get("face_count", 1) == 0, C.LIVE_WARNING_EXPOSURE_SEC):
+    if exposure_gate("no_face", face_result.get("face_count", 1) == 0, C.LIVE_NO_FACE_EXPOSURE_SEC):
         violations.append("No face detected")
-    if exposure_gate("multiple_faces", face_result.get("face_count", 1) > 1, C.LIVE_WARNING_EXPOSURE_SEC):
+    if exposure_gate("multiple_faces", face_result.get("face_count", 1) > 1, C.LIVE_MULTI_FACE_EXPOSURE_SEC):
         violations.append("Multiple faces detected")
 
-    if exposure_gate("looking_away", gaze_result.get("looking_away", False), C.LIVE_WARNING_EXPOSURE_SEC):
+    if exposure_gate("looking_away", gaze_result.get("looking_away", False), C.LIVE_LOOK_AWAY_EXPOSURE_SEC):
         violations.append("Looking away from screen")
 
-    if exposure_gate("phone_detected", phone_result.get("phone_detected", False), C.LIVE_WARNING_EXPOSURE_SEC):
+    if exposure_gate("phone_detected", phone_result.get("phone_detected", False), C.LIVE_PHONE_EXPOSURE_SEC):
         violations.append("Phone detected")
 
-    if exposure_gate("forbidden_object", object_result.get("count", 0) > 0, C.LIVE_WARNING_EXPOSURE_SEC):
+    if exposure_gate("forbidden_object", object_result.get("count", 0) > 0, C.LIVE_OBJECT_EXPOSURE_SEC):
         labels = object_result.get("labels", [])
         detail = f"Forbidden object detected: {', '.join(labels)}" if labels else "Forbidden object detected"
         violations.append(detail)
@@ -369,7 +369,7 @@ def _process_frame(frame: np.ndarray, state: SessionState) -> dict:
     if C.ADVISORY_LIP_ENABLED and exposure_gate("lip_talking", lip_result.get("talking", False), C.LIVE_ADVISORY_EXPOSURE_SEC):
         advisories.append("Possible speech activity observed")
 
-    if exposure_gate("camera_blocked", light_result.get("status") == "blocked", C.LIVE_WARNING_EXPOSURE_SEC):
+    if exposure_gate("camera_blocked", light_result.get("status") == "blocked", C.LIVE_CAMERA_BLOCKED_EXPOSURE_SEC):
         violations.append("Camera may be blocked")
     if exposure_gate("too_dark", light_result.get("status") == "too_dark", C.LIVE_ADVISORY_EXPOSURE_SEC):
         advisories.append("Lighting too dark for reliable monitoring")
@@ -379,7 +379,7 @@ def _process_frame(frame: np.ndarray, state: SessionState) -> dict:
     if C.ADVISORY_MOTION_ENABLED and exposure_gate("background_motion", motion_result.get("motion_detected", False), C.LIVE_ADVISORY_EXPOSURE_SEC):
         advisories.append("Background movement detected")
 
-    if exposure_gate("identity_mismatch", identity_result.get("identity_status") == "mismatch", C.LIVE_WARNING_EXPOSURE_SEC):
+    if exposure_gate("identity_mismatch", identity_result.get("identity_status") == "mismatch", C.LIVE_IDENTITY_EXPOSURE_SEC):
         violations.append("Identity could not be verified")
 
     return {
