@@ -14,6 +14,8 @@ let visibilityEventCount = 0
 let reconnectCheckTimerId = null
 let backendDisconnected = false
 let frameCaptureController = null
+let liveUiRefreshTimerId = null
+let lastProctorPayloadAt = 0
 let aiProctoringStatus = {
   state: 'idle',
   detail: 'Waiting for AI proctoring to start.'
@@ -24,7 +26,8 @@ let liveAiAdvisories = []
 const EXAM_CONFIG = {
   maxWarnings: 15,
   networkAppWarningCooldownMs: 5000,
-  reconnectCheckIntervalMs: 5000
+  reconnectCheckIntervalMs: 5000,
+  proctorFrameIntervalMs: 125
 }
 const MAX_WARNINGS = EXAM_CONFIG.maxWarnings
 const recentBlockedAppWarnings = new Map()
@@ -195,6 +198,37 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;')
 }
 
+function formatLiveUpdateLabel() {
+  if (!lastProctorPayloadAt) {
+    return 'Waiting'
+  }
+
+  const secondsAgo = Math.max(0, Math.round((Date.now() - lastProctorPayloadAt) / 1000))
+
+  if (secondsAgo <= 1) {
+    return 'Just now'
+  }
+
+  return `${secondsAgo}s ago`
+}
+
+function resetLiveMonitoringState() {
+  lastProctorPayloadAt = 0
+  activeViolations.clear()
+  setLiveAIWarnings([], [])
+}
+
+function startLiveUiRefreshLoop() {
+  if (liveUiRefreshTimerId) {
+    return
+  }
+
+  liveUiRefreshTimerId = setInterval(() => {
+    renderVideoFeedState()
+    renderTopWarningBanner()
+  }, 1000)
+}
+
 function getUserFacingWarningCopy(violation = {}) {
   const mappedCopy = USER_FACING_WARNING_COPY[violation.type]
 
@@ -225,10 +259,15 @@ function renderVideoFeedState() {
     return
   }
 
-  const hasWarnings = liveAiWarnings.length > 0
+  const warningCountValue = liveAiWarnings.length
+  const advisoryCountValue = liveAiAdvisories.length
+  const hasWarnings = warningCountValue > 0
+  const hasAdvisories = advisoryCountValue > 0
   const normalizedState = hasWarnings
     ? 'warning'
-    : (aiProctoringStatus.state || 'idle')
+    : hasAdvisories
+      ? 'running'
+      : (aiProctoringStatus.state || 'idle')
 
   videoBox.classList.remove(
     'video-box-idle',
@@ -270,7 +309,7 @@ function renderVideoFeedState() {
   const modeToHeadline = {
     idle: 'Waiting',
     starting: 'Connecting',
-    running: 'Monitoring Active',
+    running: 'Monitoring Live',
     warning: 'Attention Needed',
     stopped: 'Session Stopped',
     error: 'Action Required'
@@ -280,13 +319,15 @@ function renderVideoFeedState() {
   statusBadge.classList.add(modeToBadgeClass[normalizedState] || 'video-status-badge-idle')
   statusBadge.innerText = modeToBadgeLabel[normalizedState] || 'Idle'
   statusHeadline.innerText = modeToHeadline[normalizedState] || 'Waiting'
-  warningCount.innerText = hasWarnings
-    ? `${liveAiWarnings.length} active`
-    : '0 active'
+  warningCount.innerText = hasWarnings || hasAdvisories
+    ? `${warningCountValue + advisoryCountValue} live`
+    : lastProctorPayloadAt
+      ? 'Live now'
+      : 'Waiting'
 
   if (hasWarnings) {
     const primaryWarning = liveAiWarnings[0]
-    statusText.innerText = `${liveAiWarnings.length} live warning${liveAiWarnings.length > 1 ? 's are' : ' is'} currently visible on your camera feed.`
+    statusText.innerText = `${warningCountValue} live warning${warningCountValue > 1 ? 's are' : ' is'} currently visible on the camera feed.`
     warningOverlay.hidden = false
     warningText.innerText = primaryWarning
     warningStack.innerHTML = liveAiWarnings
@@ -297,8 +338,20 @@ function renderVideoFeedState() {
   }
 
   warningOverlay.hidden = true
-  statusText.innerText = aiProctoringStatus.detail || 'AI monitoring is standing by.'
-  warningStack.innerHTML = '<div class="video-warning-pill video-warning-pill-neutral">No live AI warnings</div>'
+
+  if (hasAdvisories) {
+    statusText.innerText = `${advisoryCountValue} advisory signal${advisoryCountValue > 1 ? 's are' : ' is'} being watched. Keep the candidate centered and visible.`
+    warningStack.innerHTML = liveAiAdvisories
+      .slice(0, 2)
+      .map(advisory => `<div class="video-warning-pill video-warning-pill-info">${escapeHtml(advisory)}</div>`)
+      .join('')
+    return
+  }
+
+  statusText.innerText = lastProctorPayloadAt
+    ? `Live feed is updating in real time. Last update: ${formatLiveUpdateLabel()}.`
+    : (aiProctoringStatus.detail || 'AI monitoring is standing by.')
+  warningStack.innerHTML = '<div class="video-warning-pill video-warning-pill-neutral">Live feed is clear</div>'
 }
 
 function renderTopWarningBanner() {
@@ -308,9 +361,10 @@ function renderTopWarningBanner() {
   const text = document.getElementById('liveWarningBannerText')
   const count = document.getElementById('liveWarningBannerCount')
   const state = document.getElementById('liveWarningBannerState')
+  const updated = document.getElementById('liveWarningBannerUpdated')
   const list = document.getElementById('liveWarningBannerList')
 
-  if (!banner || !badge || !title || !text || !count || !state || !list) {
+  if (!banner || !badge || !title || !text || !count || !state || !updated || !list) {
     return
   }
 
@@ -335,9 +389,8 @@ function renderTopWarningBanner() {
 
   badge.innerText = mode === 'error' ? 'Action Needed' : mode === 'warning' ? 'Advisory' : 'Stable'
   count.innerText = String(totalActive)
-  state.innerText = String(aiProctoringStatus.state || 'idle')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, letter => letter.toUpperCase())
+  state.innerText = lastProctorPayloadAt ? 'Live' : 'Connecting'
+  updated.innerText = formatLiveUpdateLabel()
 
   if (warningCount > 0) {
     title.innerText = `${warningCount} live warning${warningCount > 1 ? 's' : ''} detected`
@@ -346,8 +399,10 @@ function renderTopWarningBanner() {
     title.innerText = `${advisoryCount} monitoring advisory${advisoryCount > 1 ? 'ies' : ''} visible`
     text.innerText = 'These advisories are informational signals from the live feed. Review them and keep the candidate properly positioned and visible.'
   } else {
-    title.innerText = 'No active proctoring incidents'
-    text.innerText = aiProctoringStatus.detail || 'AI monitoring is connected and tracking the live feed.'
+    title.innerText = lastProctorPayloadAt ? 'Live monitoring is active' : 'Connecting live monitoring'
+    text.innerText = lastProctorPayloadAt
+      ? `The live feed is updating normally. Last update: ${formatLiveUpdateLabel()}.`
+      : (aiProctoringStatus.detail || 'AI monitoring is connecting to the live feed.')
   }
 
   const pills = [
@@ -764,6 +819,11 @@ function releaseExamResources() {
     examTimerId = null
   }
 
+  if (liveUiRefreshTimerId) {
+    clearInterval(liveUiRefreshTimerId)
+    liveUiRefreshTimerId = null
+  }
+
   if (questionPaperUrl) {
     URL.revokeObjectURL(questionPaperUrl)
     questionPaperUrl = null
@@ -794,8 +854,7 @@ function releaseExamResources() {
   }
 
   clearReconnectCheck()
-  activeViolations.clear()
-  setLiveAIWarnings([])
+  resetLiveMonitoringState()
 }
 
 function formatCompletionLabel(value, fallback = 'Not available') {
@@ -997,6 +1056,11 @@ async function startExamAttempt() {
   updateViolationCount(data.attempt.violationCount)
   renderWarningHistory(data.attempt.violations)
   examStarted = true
+  resetLiveMonitoringState()
+  setAIProctoringStatus({
+    state: 'running',
+    detail: 'Live monitoring is active for this exam session.'
+  })
 
   if (window.electronAPI?.startExamMonitoring) {
     window.electronAPI.startExamMonitoring()
@@ -1116,6 +1180,8 @@ async function startCamera() {
   }
 
   try {
+    resetLiveMonitoringState()
+
     const devices = await navigator.mediaDevices.enumerateDevices()
     const hasVideoInput = devices.some(device => device.kind === 'videoinput')
 
@@ -1327,9 +1393,10 @@ function startFrameCaptureWithOverlay(video) {
 
     ws.onopen = () => {
       console.log('[Proctor] WebSocket connected')
+      resetLiveMonitoringState()
       setAIProctoringStatus({
         state: 'running',
-        detail: 'AI monitoring is actively checking the live camera feed.'
+        detail: 'Live monitoring is connected and checking the camera feed.'
       })
 
       if (hasConnectedOnce) {
@@ -1341,7 +1408,7 @@ function startFrameCaptureWithOverlay(video) {
       }
 
       hasConnectedOnce = true
-      intervalId = setInterval(sendFrame, 1000 / 5)
+      intervalId = setInterval(sendFrame, EXAM_CONFIG.proctorFrameIntervalMs)
     }
 
     ws.onmessage = (event) => {
@@ -1353,6 +1420,16 @@ function startFrameCaptureWithOverlay(video) {
       try {
         result = JSON.parse(event.data)
       } catch {
+        return
+      }
+
+      lastProctorPayloadAt = Date.now()
+
+      if (result.error) {
+        setAIProctoringStatus({
+          state: 'error',
+          detail: result.message || 'AI monitoring returned an error.'
+        })
         return
       }
 
@@ -1390,11 +1467,15 @@ function startFrameCaptureWithOverlay(video) {
       }
 
       if (incomingViolations.size === 0 && incomingAdvisories.size > 0) {
+        setAIProctoringStatus({
+          state: 'running',
+          detail: 'Live monitoring is active and showing advisory signals.'
+        })
         setExamStatus('AI monitoring has a few live advisories. Review the top banner and keep the candidate properly framed.', 'info')
       } else if (incomingViolations.size === 0) {
         setAIProctoringStatus({
           state: 'running',
-          detail: 'AI monitoring is actively checking the live camera feed.'
+          detail: 'Live monitoring is active and the feed is clear.'
         })
         setExamStatus('Your camera is connected. You are ready to begin.', 'info')
       }
@@ -1408,12 +1489,12 @@ function startFrameCaptureWithOverlay(video) {
       console.warn('[Proctor] WebSocket closed - reconnecting in 3s')
       clearInterval(intervalId)
       intervalId = null
-      setLiveAIWarnings([], [])
+      resetLiveMonitoringState()
 
       if (!stopped) {
         setAIProctoringStatus({
           state: 'starting',
-          detail: 'AI monitoring connection was lost. Reconnecting to the live feed...'
+          detail: 'Live monitoring connection was lost. Reconnecting...'
         })
       }
 
@@ -1434,6 +1515,7 @@ function startFrameCaptureWithOverlay(video) {
   function sendFrame() {
     if (!ws || ws.readyState !== WebSocket.OPEN) return
     if (!video.videoWidth) return
+    if (ws.bufferedAmount > 0) return
 
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
@@ -1451,8 +1533,7 @@ function startFrameCaptureWithOverlay(video) {
       clearTimeout(reconnectTimeoutId)
       intervalId = null
       reconnectTimeoutId = null
-      activeViolations.clear()
-      setLiveAIWarnings([], [])
+      resetLiveMonitoringState()
 
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.close()
@@ -1657,6 +1738,8 @@ window.addEventListener('beforeunload', () => {
 })
 
 window.addEventListener('load', async () => {
+  startLiveUiRefreshLoop()
+
   if (window.electronAPI?.getAIProctoringStatus) {
     const initialAIStatus = await window.electronAPI.getAIProctoringStatus()
     setAIProctoringStatus(initialAIStatus)

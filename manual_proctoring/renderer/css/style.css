@@ -380,7 +380,7 @@ button:disabled{
 
 .live-warning-banner-side{
  display:grid;
- grid-template-columns:repeat(2, minmax(110px, 1fr));
+ grid-template-columns:repeat(auto-fit, minmax(110px, 1fr));
  gap:10px;
  align-self:start;
 }
@@ -890,7 +890,7 @@ video{
  }
 
  .live-warning-banner-side{
-  grid-template-columns:repeat(2, minmax(0, 1fr));
+  grid-template-columns:repeat(auto-fit, minmax(120px, 1fr));
  }
 
  .exam-layout{
