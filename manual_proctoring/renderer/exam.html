@@ -26,6 +26,34 @@
       </div>
     </div>
 
+    <section id="liveWarningBanner" class="live-warning-banner live-warning-banner-idle">
+      <div class="live-warning-banner-main">
+        <div class="live-warning-banner-label-row">
+          <span class="live-warning-banner-kicker">Live Monitoring</span>
+          <span id="liveWarningBannerBadge" class="live-warning-badge live-warning-badge-idle">Stable</span>
+        </div>
+        <h2 id="liveWarningBannerTitle" class="live-warning-banner-title">No active proctoring incidents</h2>
+        <p id="liveWarningBannerText" class="live-warning-banner-text">
+          AI monitoring is connected and watching the live feed. Any active warnings will appear here immediately.
+        </p>
+      </div>
+
+      <div class="live-warning-banner-side">
+        <div class="live-warning-metric">
+          <span class="live-warning-metric-label">Active warnings</span>
+          <span id="liveWarningBannerCount" class="live-warning-metric-value">0</span>
+        </div>
+        <div class="live-warning-metric">
+          <span class="live-warning-metric-label">AI state</span>
+          <span id="liveWarningBannerState" class="live-warning-metric-value">Standby</span>
+        </div>
+      </div>
+
+      <div id="liveWarningBannerList" class="live-warning-banner-list">
+        <div class="live-warning-banner-pill live-warning-banner-pill-neutral">No live warnings</div>
+      </div>
+    </section>
+
     <p id="examMessage" class="status-message" hidden></p>
 
     <div class="exam-actions">
@@ -33,24 +61,31 @@
       <button class="secondary-btn" onclick="goBackToDashboard()">Back to Dashboard</button>
     </div>
 
-    <div id="devMonitoringPanel" hidden style="width: 100%; background: #fff4e5; border: 1px solid #f5c27a; color: #7a2e0b; border-radius: 12px; padding: 14px 16px;">
-      <div style="font-weight: 700; margin-bottom: 6px;">Developer Mode</div>
-      <label style="display: flex; align-items: center; gap: 10px; font-weight: 600;">
+    <div id="devMonitoringPanel" class="dev-monitoring-panel" hidden>
+      <div class="dev-monitoring-title">Developer Mode</div>
+      <label class="dev-monitoring-toggle">
         <input id="devBlockedAppToggle" type="checkbox">
         <span>Enable blocked app monitoring and auto-close behavior for testing</span>
       </label>
-      <p id="devMonitoringMessage" style="margin: 10px 0 0; font-size: 14px;">
+      <p id="devMonitoringMessage" class="dev-monitoring-message">
         Blocked app monitoring is disabled by default in development.
       </p>
     </div>
 
-    <div style="width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start;">
-      <div>
-        <h2>Question Paper</h2>
-        <iframe id="questionFrame" width="100%" height="500px"></iframe>
+    <div class="exam-layout">
+      <div class="exam-primary-column">
+        <section class="exam-surface exam-paper-surface">
+          <div class="section-heading-row">
+            <div>
+              <h2 class="section-title">Question Paper</h2>
+              <p class="section-copy">Read the official paper here while the live monitoring stack continues in parallel.</p>
+            </div>
+          </div>
+          <iframe id="questionFrame" class="question-frame"></iframe>
+        </section>
       </div>
 
-      <aside style="display: flex; flex-direction: column; gap: 16px;">
+      <aside class="exam-sidebar">
         <section id="proctorVideoBox" class="exam-side-card proctor-panel video-box video-box-idle">
           <div class="proctor-panel-header">
             <div>
@@ -88,23 +123,23 @@
           </div>
         </section>
 
-        <section style="background: #ffffff; border: 1px solid #d0d5dd; border-radius: 12px; padding: 16px;">
-          <h2 style="margin-top: 0;">Question Summary</h2>
-          <p style="margin-top: 0; color: #475467; font-size: 14px;">
+        <section class="exam-surface exam-side-card">
+          <h2 class="section-title">Question Summary</h2>
+          <p class="section-copy">
             Review the objective questions here while keeping the full paper open in the PDF.
           </p>
-          <ul id="questionSummaryList" style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px;">
-            <li style="color: #475467; font-size: 14px;">Loading questions...</li>
+          <ul id="questionSummaryList" class="summary-list">
+            <li class="empty-list-message">Loading questions...</li>
           </ul>
         </section>
 
-        <section style="background: #ffffff; border: 1px solid #d0d5dd; border-radius: 12px; padding: 16px;">
-          <h2 style="margin-top: 0;">Warning History</h2>
-          <p style="margin-top: 0; color: #475467; font-size: 14px;">
+        <section class="exam-surface exam-side-card">
+          <h2 class="section-title">Warning History</h2>
+          <p class="section-copy">
             The latest 5 warnings recorded for this attempt are shown below.
           </p>
-          <ul id="warningHistoryList" style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px;">
-            <li style="color: #475467; font-size: 14px;">No warnings recorded yet.</li>
+          <ul id="warningHistoryList" class="summary-list">
+            <li class="empty-list-message">No warnings recorded yet.</li>
           </ul>
         </section>
       </aside>

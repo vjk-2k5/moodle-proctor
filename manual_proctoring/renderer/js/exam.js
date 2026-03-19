@@ -19,6 +19,7 @@ let aiProctoringStatus = {
   detail: 'Waiting for AI proctoring to start.'
 }
 let liveAiWarnings = []
+let liveAiAdvisories = []
 
 const EXAM_CONFIG = {
   maxWarnings: 15,
@@ -107,6 +108,10 @@ const USER_FACING_WARNING_COPY = {
   proctoring_alert: {
     title: 'Proctoring alert',
     detail: 'A proctoring alert was detected during the exam.'
+  },
+  proctoring_advisory: {
+    title: 'Monitoring advisory',
+    detail: 'A non-critical monitoring advisory was detected during the exam.'
   }
 }
 
@@ -296,11 +301,74 @@ function renderVideoFeedState() {
   warningStack.innerHTML = '<div class="video-warning-pill video-warning-pill-neutral">No live AI warnings</div>'
 }
 
-function setLiveAIWarnings(warnings = []) {
+function renderTopWarningBanner() {
+  const banner = document.getElementById('liveWarningBanner')
+  const badge = document.getElementById('liveWarningBannerBadge')
+  const title = document.getElementById('liveWarningBannerTitle')
+  const text = document.getElementById('liveWarningBannerText')
+  const count = document.getElementById('liveWarningBannerCount')
+  const state = document.getElementById('liveWarningBannerState')
+  const list = document.getElementById('liveWarningBannerList')
+
+  if (!banner || !badge || !title || !text || !count || !state || !list) {
+    return
+  }
+
+  const warningCount = liveAiWarnings.length
+  const advisoryCount = liveAiAdvisories.length
+  const totalActive = warningCount + advisoryCount
+
+  banner.classList.remove(
+    'live-warning-banner-idle',
+    'live-warning-banner-warning',
+    'live-warning-banner-error'
+  )
+  badge.classList.remove(
+    'live-warning-badge-idle',
+    'live-warning-badge-warning',
+    'live-warning-badge-error'
+  )
+
+  const mode = warningCount > 0 ? 'error' : totalActive > 0 ? 'warning' : 'idle'
+  banner.classList.add(`live-warning-banner-${mode}`)
+  badge.classList.add(`live-warning-badge-${mode}`)
+
+  badge.innerText = mode === 'error' ? 'Action Needed' : mode === 'warning' ? 'Advisory' : 'Stable'
+  count.innerText = String(totalActive)
+  state.innerText = String(aiProctoringStatus.state || 'idle')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, letter => letter.toUpperCase())
+
+  if (warningCount > 0) {
+    title.innerText = `${warningCount} live warning${warningCount > 1 ? 's' : ''} detected`
+    text.innerText = 'The live AI feed is currently detecting issues that may become recorded exam violations if they continue.'
+  } else if (advisoryCount > 0) {
+    title.innerText = `${advisoryCount} monitoring advisory${advisoryCount > 1 ? 'ies' : ''} visible`
+    text.innerText = 'These advisories are informational signals from the live feed. Review them and keep the candidate properly positioned and visible.'
+  } else {
+    title.innerText = 'No active proctoring incidents'
+    text.innerText = aiProctoringStatus.detail || 'AI monitoring is connected and tracking the live feed.'
+  }
+
+  const pills = [
+    ...liveAiWarnings.map(message => ({ message, cls: 'error' })),
+    ...liveAiAdvisories.map(message => ({ message, cls: 'warning' }))
+  ].slice(0, 5)
+
+  list.innerHTML = pills.length
+    ? pills.map(item => `<div class="live-warning-banner-pill live-warning-banner-pill-${item.cls}">${escapeHtml(item.message)}</div>`).join('')
+    : '<div class="live-warning-banner-pill live-warning-banner-pill-neutral">No live warnings</div>'
+}
+
+function setLiveAIWarnings(warnings = [], advisories = []) {
   liveAiWarnings = Array.isArray(warnings)
     ? warnings.filter(Boolean).slice(0, 3)
     : []
+  liveAiAdvisories = Array.isArray(advisories)
+    ? advisories.filter(Boolean).slice(0, 2)
+    : []
   renderVideoFeedState()
+  renderTopWarningBanner()
 }
 
 function setAIProctoringStatus(status = {}) {
@@ -309,6 +377,7 @@ function setAIProctoringStatus(status = {}) {
     detail: status.detail || 'AI proctoring status is unavailable.'
   }
   renderVideoFeedState()
+  renderTopWarningBanner()
 }
 
 function showViolationStatus(violation = {}) {
@@ -436,6 +505,76 @@ function renderQuestionSummary(questions = []) {
         <li style="padding: 12px; border: 1px solid #eaecf0; border-radius: 10px; background: #f8fafc;">
           <div style="font-weight: 700; color: #101828; margin-bottom: 8px;">${questionText}</div>
           <ul style="margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px;">
+            ${optionMarkup}
+          </ul>
+        </li>
+      `
+    })
+    .join('')
+}
+
+function renderWarningHistory(violations = []) {
+  const historyList = document.getElementById('warningHistoryList')
+
+  if (!historyList) {
+    return
+  }
+
+  const recentViolations = Array.isArray(violations)
+    ? violations.slice(-5).reverse()
+    : []
+
+  if (recentViolations.length === 0) {
+    historyList.innerHTML = '<li class="empty-list-message">No warnings recorded yet.</li>'
+    return
+  }
+
+  historyList.innerHTML = recentViolations
+    .map(violation => {
+      const warningCopy = getUserFacingWarningCopy(violation)
+      const detail = escapeHtml(warningCopy.detail)
+      const type = escapeHtml(warningCopy.title)
+      const timestamp = escapeHtml(formatViolationTimestamp(violation.createdAt))
+      const severityLabel = escapeHtml(violation.severity === 'info' ? 'Info' : 'Warning')
+
+      return `
+        <li class="summary-card">
+          <div class="summary-card-meta">${timestamp} · ${severityLabel}</div>
+          <div class="summary-card-title">${type}</div>
+          <div class="summary-card-detail">${detail}</div>
+        </li>
+      `
+    })
+    .join('')
+}
+
+function renderQuestionSummary(questions = []) {
+  const questionList = document.getElementById('questionSummaryList')
+
+  if (!questionList) {
+    return
+  }
+
+  if (!Array.isArray(questions) || questions.length === 0) {
+    questionList.innerHTML = '<li class="empty-list-message">No question summary is available.</li>'
+    return
+  }
+
+  questionList.innerHTML = questions
+    .map(question => {
+      const questionText = escapeHtml(question.question || 'Untitled question')
+      const options = Array.isArray(question.options) ? question.options : []
+
+      const optionMarkup = options.length === 0
+        ? '<li class="summary-card-detail">No options listed.</li>'
+        : options
+            .map(option => `<li class="summary-card-detail">${escapeHtml(option)}</li>`)
+            .join('')
+
+      return `
+        <li class="summary-card">
+          <div class="summary-card-title" style="margin-bottom: 8px;">${questionText}</div>
+          <ul class="summary-option-list">
             ${optionMarkup}
           </ul>
         </li>
@@ -1218,7 +1357,8 @@ function startFrameCaptureWithOverlay(video) {
       }
 
       const incomingViolations = new Set(result.violations || [])
-      setLiveAIWarnings(Array.from(incomingViolations))
+      const incomingAdvisories = new Set(result.advisories || [])
+      setLiveAIWarnings(Array.from(incomingViolations), Array.from(incomingAdvisories))
 
       for (const message of incomingViolations) {
         if (!activeViolations.has(message)) {
@@ -1249,7 +1389,9 @@ function startFrameCaptureWithOverlay(video) {
         }
       }
 
-      if (incomingViolations.size === 0) {
+      if (incomingViolations.size === 0 && incomingAdvisories.size > 0) {
+        setExamStatus('AI monitoring has a few live advisories. Review the top banner and keep the candidate properly framed.', 'info')
+      } else if (incomingViolations.size === 0) {
         setAIProctoringStatus({
           state: 'running',
           detail: 'AI monitoring is actively checking the live camera feed.'
@@ -1266,7 +1408,7 @@ function startFrameCaptureWithOverlay(video) {
       console.warn('[Proctor] WebSocket closed - reconnecting in 3s')
       clearInterval(intervalId)
       intervalId = null
-      setLiveAIWarnings([])
+      setLiveAIWarnings([], [])
 
       if (!stopped) {
         setAIProctoringStatus({
@@ -1310,7 +1452,7 @@ function startFrameCaptureWithOverlay(video) {
       intervalId = null
       reconnectTimeoutId = null
       activeViolations.clear()
-      setLiveAIWarnings([])
+      setLiveAIWarnings([], [])
 
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.close()
@@ -1520,6 +1662,7 @@ window.addEventListener('load', async () => {
     setAIProctoringStatus(initialAIStatus)
   } else {
     renderVideoFeedState()
+    renderTopWarningBanner()
   }
 
   registerDevMonitoringControls()
