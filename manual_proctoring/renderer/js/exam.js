@@ -1584,6 +1584,27 @@ PROCTORING_VIOLATION_MAP['Lighting too dark - face not visible'] = {
 const activeViolations = new Set()
 const pendingAiViolations = new Map()
 
+function getMappedProctoringViolation (message) {
+  if (PROCTORING_VIOLATION_MAP[message]) {
+    return PROCTORING_VIOLATION_MAP[message]
+  }
+
+  for (const [pattern, mapped] of Object.entries(PROCTORING_VIOLATION_MAP)) {
+    if (message.startsWith(`${pattern}:`)) {
+      return mapped
+    }
+  }
+
+  if (message.startsWith('Forbidden object detected')) {
+    return {
+      type: 'proctoring_alert',
+      detail: message
+    }
+  }
+
+  return null
+}
+
 function getAiWarningDwellMs (message) {
   for (const [pattern, dwellMs] of Object.entries(
     EXAM_CONFIG.aiWarningDwellMs
@@ -1615,7 +1636,7 @@ function processIncomingAiViolations (incomingViolations) {
       continue
     }
 
-    const mapped = PROCTORING_VIOLATION_MAP[message]
+    const mapped = getMappedProctoringViolation(message)
     if (mapped) {
       showViolationStatus({
         type: mapped.type,
