@@ -62,10 +62,10 @@ Install the tools needed for the part of the workspace you want to run:
 
 ## Quick Start
 
-### 1. Teacher dashboard (`dsc`)
+### 1. Teacher dashboard (`frontend`)
 
 ```bash
-cd dsc
+cd frontend
 npm install
 npm run dev
 ```
