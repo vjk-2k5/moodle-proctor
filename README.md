@@ -64,11 +64,13 @@ Before setting up the project, ensure you have the following tools installed on 
   npm --version
   ```
 
+
 - **Python 3.11+** - Required for AI proctoring service
   ```bash
   # Check version
   python --version
   ```
+
 
 - **uv** - Fast Python package installer for AI proctoring service
   ```bash
@@ -163,9 +165,11 @@ cd backend && npm install && cd ..
 # Frontend dependencies
 cd frontend && npm install && cd ..
 
+
 # AI Proctoring dependencies (using uv for fast package management)
 cd ai_proctoring
 uv sync
+
 cd ..
 
 # Mobile client dependencies
