@@ -47,6 +47,10 @@ interface ManualSession {
   expiresAt: number;
 }
 
+type ManualSessionValidationResult =
+  | { ok: true; session: ManualSession }
+  | { ok: false; reason: 'missing' | 'invalid' | 'expired' };
+
 interface ManualViolation {
   type: string;
   detail: string;
@@ -129,6 +133,37 @@ export function getManualSessionFromToken(token: string | null): ManualSession |
   return session;
 }
 
+export function validateManualSessionToken(token: string | null): ManualSessionValidationResult {
+  if (!token) {
+    return {
+      ok: false,
+      reason: 'missing'
+    };
+  }
+
+  const session = sessions.get(token);
+
+  if (!session) {
+    return {
+      ok: false,
+      reason: 'invalid'
+    };
+  }
+
+  if (Date.now() > session.expiresAt) {
+    sessions.delete(token);
+    return {
+      ok: false,
+      reason: 'expired'
+    };
+  }
+
+  return {
+    ok: true,
+    session
+  };
+}
+
 export function destroyManualSession(token: string | null): void {
   if (token) {
     sessions.delete(token);
@@ -137,6 +172,12 @@ export function destroyManualSession(token: string | null): void {
 
 export function getManualSessionFromRequest(request: { headers: Record<string, unknown> }): ManualSession | null {
   return getManualSessionFromToken(getManualTokenFromRequest(request));
+}
+
+export function validateManualSessionFromRequest(
+  request: { headers: Record<string, unknown> }
+): ManualSessionValidationResult {
+  return validateManualSessionToken(getManualTokenFromRequest(request));
 }
 
 export function getManualPublicStudentProfile(): {
@@ -211,10 +252,6 @@ export function getLatestManualAttempt(): {
   };
 }
 
-export function getFirstAvailableExamId(): number {
-  return 1;
-}
-
 export function startManualExamAttempt(): {
   success: boolean;
   message?: string;
@@ -280,9 +317,11 @@ export function recordManualViolation(type: string, detail: string, severityInpu
     submitManualExamAttempt('warning_limit_reached');
   }
 
+  const isAutoSubmitted = attempt.violationCount >= MANUAL_MAX_WARNINGS;
+
   return {
     success: true,
-    message: attempt.status === 'submitted'
+    message: isAutoSubmitted
       ? `Exam terminated after reaching ${MANUAL_MAX_WARNINGS} warnings.`
       : undefined,
     attempt: serializeAttempt(attempt),

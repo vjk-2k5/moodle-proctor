@@ -10,8 +10,8 @@ import logger from '../config/logger';
 import { UnauthorizedError } from '../utils/errors';
 import {
   getManualAuthUser,
-  getManualSessionFromRequest,
-  isManualProctoringRequest
+  isManualProctoringRequest,
+  validateManualSessionFromRequest
 } from '../modules/manual-proctoring/manual-proctoring.compat';
 
 // ============================================================================
@@ -28,19 +28,33 @@ export async function authMiddleware(
 ): Promise<void> {
   try {
     if (isManualProctoringRequest(request as any)) {
-      const manualSession = getManualSessionFromRequest(request as any);
+      const manualSessionResult = validateManualSessionFromRequest(request as any);
 
-      if (manualSession) {
-        (request as any).user = getManualAuthUser();
-        (request as any).tokenPayload = {
-          userId: getManualAuthUser().id,
-          username: getManualAuthUser().username,
-          email: getManualAuthUser().email,
-          role: getManualAuthUser().role,
-          exp: Math.floor(manualSession.expiresAt / 1000)
-        };
+      if (!manualSessionResult.ok) {
+        const message =
+          manualSessionResult.reason === 'missing'
+            ? 'Authentication required'
+            : manualSessionResult.reason === 'expired'
+            ? 'Session expired'
+            : 'Invalid session';
+
+        await reply.code(401).send({
+          success: false,
+          message
+        });
         return;
       }
+
+      const manualUser = getManualAuthUser();
+      (request as any).user = manualUser;
+      (request as any).tokenPayload = {
+        userId: manualUser.id,
+        username: manualUser.username,
+        email: manualUser.email,
+        role: manualUser.role,
+        exp: Math.floor(manualSessionResult.session.expiresAt / 1000)
+      };
+      return;
     }
 
     // Extract token from Authorization header
@@ -78,7 +92,7 @@ export async function authMiddleware(
  */
 export async function optionalAuthMiddleware(
   request: FastifyRequest,
-  reply: FastifyReply
+  _reply: FastifyReply
 ): Promise<void> {
   try {
     const authHeader = request.headers.authorization;
@@ -109,7 +123,7 @@ export async function optionalAuthMiddleware(
  * Checks if user has required role
  */
 export function requireRole(...allowedRoles: string[]) {
-  return async function (request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  return async function (request: FastifyRequest, _reply: FastifyReply): Promise<void> {
     const user = (request as any).user;
 
     if (!user) {

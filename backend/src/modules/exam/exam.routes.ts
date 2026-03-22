@@ -8,7 +8,6 @@ import { FastifyInstance } from 'fastify';
 import { createExamService } from './exam.service';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import {
-  getLatestManualAttempt,
   getManualSessionFromRequest,
   isManualProctoringRequest
 } from '../manual-proctoring/manual-proctoring.compat';
