@@ -1,6 +1,6 @@
 # Manual Proctoring Electron App
 
-This Electron client now uses the main backend only. You do not need to run `manual_proctoring/backend/server.js`.
+This Electron client now uses the main backend only. `manual_proctoring/backend/server.js` has been archived and now exits immediately if run.
 
 ## Run
 

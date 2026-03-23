@@ -76,4 +76,4 @@ const APP_CONFIG = {
 
 ## Cleanup
 
-You can delete `manual_proctoring/backend` and stop any workflow that still runs `node server.js`.
+`manual_proctoring/backend/server.js` is now an archive guard stub. The preserved legacy implementation lives at `manual_proctoring/backend/server.legacy.js`, and active workflows should use the main `backend/` service instead.
