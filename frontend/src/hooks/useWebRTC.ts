@@ -6,7 +6,6 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import logger from '../config/logger';
 
 export interface WebRTCPeerInfo {
   peerId: string;
@@ -41,14 +40,18 @@ export function useWebRTC(config: WebRTCConfig) {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const peerConnections = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStream = useRef<MediaStream | null>(null);
+  const routerRtpCapabilities = useRef<Record<string, unknown> | null>(null);
   const transports = useRef<Map<string, any>>(new Map());
 
   /**
    * Initialize local media stream
    */
   const initializeLocalStream = useCallback(async () => {
+    if (config.studentName === 'Teacher') {
+      return null;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -72,88 +75,6 @@ export function useWebRTC(config: WebRTCConfig) {
       throw err;
     }
   }, []);
-
-  /**
-   * Create WebRTC peer connection
-   */
-  const createPeerConnection = useCallback(
-    (peerId: string): RTCPeerConnection => {
-      const iceServers = [
-        { urls: ['stun:stun.l.google.com:19302'] },
-        { urls: ['stun:stun1.l.google.com:19302'] },
-      ];
-
-      const peerConnection = new RTCPeerConnection({
-        iceServers,
-      });
-
-      // Add local tracks as producer
-      if (localStream.current) {
-        localStream.current.getTracks().forEach((track) => {
-          if (localStream.current) {
-            peerConnection.addTrack(track, localStream.current);
-          }
-        });
-      }
-
-      // Handle remote tracks
-      peerConnection.ontrack = (event) => {
-        console.log('Received remote track:', event.track.kind, peerId);
-
-        const stream = new MediaStream();
-        stream.addTrack(event.track);
-
-        setStreams((prev) => {
-          const updated = new Map(prev);
-          updated.set(`${peerId}-${event.track.id}`, {
-            producerId: `${peerId}-${event.track.id}`,
-            peerId,
-            studentName: peerId,
-            stream,
-            kind: event.track.kind as 'audio' | 'video',
-          });
-          return updated;
-        });
-      };
-
-      // Handle connection state changes
-      peerConnection.onconnectionstatechange = () => {
-        console.log(
-          `Connection state with ${peerId}: ${peerConnection.connectionState}`
-        );
-
-        if (peerConnection.connectionState === 'disconnected') {
-          peerConnections.current.delete(peerId);
-          setPeers((prev) => {
-            const updated = new Map(prev);
-            updated.delete(peerId);
-            return updated;
-          });
-        }
-      };
-
-      peerConnections.current.set(peerId, peerConnection);
-      return peerConnection;
-    },
-    []
-  );
-
-  /**
-   * Create offer
-   */
-  const createOffer = useCallback(
-    async (peerConnection: RTCPeerConnection): Promise<RTCSessionDescriptionInit> => {
-      const offer = await peerConnection.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true,
-      });
-
-      await peerConnection.setLocalDescription(offer);
-
-      return offer;
-    },
-    []
-  );
 
   /**
    * Join room
@@ -205,25 +126,19 @@ export function useWebRTC(config: WebRTCConfig) {
         throw new Error('Failed to join room');
       }
 
-      const { transport } = await peerRes.json();
+      const { transport, routerRtpCapabilities: nextRouterRtpCapabilities } =
+        await peerRes.json();
 
-      // Store transport
       transports.current.set(config.peerId, transport);
+      routerRtpCapabilities.current = nextRouterRtpCapabilities || null;
 
-      // Create peer connection
-      const peerConnection = createPeerConnection(config.peerId);
-
-      // Create and set local description
-      const offer = await createOffer(peerConnection);
-
-      // Send offer to backend (connect transport)
       const connectRes = await fetch(
         `${config.backendUrl}/api/webrtc/rooms/${config.roomId}/peers/${config.peerId}/connect-transport`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            dtlsParameters: peerConnection.getConfiguration(),
+            dtlsParameters: transport.dtlsParameters,
           }),
           credentials: 'include',
         }
@@ -233,7 +148,27 @@ export function useWebRTC(config: WebRTCConfig) {
         throw new Error('Failed to connect transport');
       }
 
-      // Get available consumers
+      if (localStream.current) {
+        for (const track of localStream.current.getTracks()) {
+          const produceRes = await fetch(
+            `${config.backendUrl}/api/webrtc/rooms/${config.roomId}/peers/${config.peerId}/produce`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                kind: track.kind,
+                rtpParameters: routerRtpCapabilities.current || {},
+              }),
+              credentials: 'include',
+            }
+          );
+
+          if (!produceRes.ok) {
+            throw new Error(`Failed to create ${track.kind} producer`);
+          }
+        }
+      }
+
       const consumersRes = await fetch(
         `${config.backendUrl}/api/webrtc/rooms/${config.roomId}/peers/${config.peerId}/consumers`,
         {
@@ -243,7 +178,6 @@ export function useWebRTC(config: WebRTCConfig) {
 
       const { consumers } = await consumersRes.json();
 
-      // Subscribe to consumer streams
       for (const consumer of consumers) {
         try {
           const consumerRes = await fetch(
@@ -253,16 +187,15 @@ export function useWebRTC(config: WebRTCConfig) {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 producerId: consumer.producerId,
-                rtpCapabilities: peerConnection.getConfiguration(),
+                rtpCapabilities: routerRtpCapabilities.current || {},
               }),
               credentials: 'include',
             }
           );
 
           if (consumerRes.ok) {
-            const consumerData = await consumerRes.json();
+            await consumerRes.json();
 
-            // Resume consumer
             await fetch(
               `${config.backendUrl}/api/webrtc/rooms/${config.roomId}/peers/${config.peerId}/consumers/${consumer.producerId}/resume`,
               {
@@ -281,6 +214,22 @@ export function useWebRTC(config: WebRTCConfig) {
                 connectionState: 'connected',
                 videoEnabled: true,
                 audioEnabled: true,
+                });
+              return updated;
+            });
+
+            setStreams((prev) => {
+              if (prev.has(consumer.producerId)) {
+                return prev;
+              }
+
+              const updated = new Map(prev);
+              updated.set(consumer.producerId, {
+                producerId: consumer.producerId,
+                peerId: consumer.peerId,
+                studentName: consumer.studentName,
+                stream: new MediaStream(),
+                kind: consumer.kind,
               });
               return updated;
             });
@@ -296,20 +245,13 @@ export function useWebRTC(config: WebRTCConfig) {
       setError(message);
       console.error(message);
     }
-  }, [config, initializeLocalStream, createPeerConnection, createOffer]);
+  }, [config, initializeLocalStream]);
 
   /**
    * Leave room
    */
   const leaveRoom = useCallback(async () => {
     try {
-      // Close all peer connections
-      for (const pc of peerConnections.current.values()) {
-        pc.close();
-      }
-      peerConnections.current.clear();
-
-      // Stop local tracks
       if (localStream.current) {
         localStream.current.getTracks().forEach((track) => track.stop());
         localStream.current = null;

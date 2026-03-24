@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useWebRTC } from '@/hooks/useWebRTC';
 import { VideoStream } from './VideoStream';
 import { FiLoader } from 'react-icons/fi';
@@ -10,7 +10,7 @@ export const StudentsGrid = () => {
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 
   // For demo, use teacher as viewer with peerId
-  const teacherPeerId = `teacher-${Date.now()}`;
+  const teacherPeerId = useRef(`teacher-${Date.now()}`);
 
   const {
     peers,
@@ -22,7 +22,7 @@ export const StudentsGrid = () => {
     getRemoteStreams,
   } = useWebRTC({
     roomId,
-    peerId: teacherPeerId,
+    peerId: teacherPeerId.current,
     userId: 0,
     studentName: 'Teacher',
     backendUrl,

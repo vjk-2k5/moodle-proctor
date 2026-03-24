@@ -21,7 +21,7 @@ export interface VideoStreamProps {
 export function VideoStream({
   stream,
   studentName,
-  peerId,
+  peerId: _peerId,
   isProducing,
   connectionState,
   videoEnabled,
