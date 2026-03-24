@@ -147,13 +147,67 @@ The backend foundation has been successfully implemented with core infrastructur
 
 4. **Edit .env** with your configuration:
    ```env
+   
+   ``# Application
    NODE_ENV=development
+   APP_VERSION=1.0.0
+   APP_NAME=moodle-proctor-backend
+   APP_ENVIRONMENT=development
+
+   # Server
    PORT=5000
-   DATABASE_URL=postgresql://proctor_user:proctor_pass@localhost:5432/moodle_proctor
+   HOST=0.0.0.0
+
+   # Database
+   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/moodle_proctor
+   DATABASE_HOST=localhost
+   DATABASE_PORT=5432
+   DATABASE_NAME=moodle_proctor
+   DATABASE_USER=postgres
+   DATABASE_PASSWORD=postgres
+
+   # JWT
+   JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+   JWT_EXPIRY=24h
+
+   # CORS
+   CORS_ORIGIN=http://localhost:3000,http://localhost:8080,file://
+   CORS_CREDENTIALS=true
+
+   # Moodle LMS Integration
    MOODLE_BASE_URL=http://localhost:8080
    MOODLE_SERVICE=moodle_mobile_app
-   JWT_SECRET=your-super-secret-jwt-key-change-in-production
+   MOODLE_TOKEN_ENCRYPTION_KEY=your-encryption-key-for-moodle-tokens
+
+   # AI Proctoring Service
    AI_SERVICE_URL=ws://localhost:8000/proctor
+   AI_SERVICE_HEALTH_CHECK=http://localhost:8000/health
+
+
+   # MediaSoup Worker RTC Ports
+   MEDIASOUP_RTC_MIN_PORT=10000
+   MEDIASOUP_RTC_MAX_PORT=20000
+
+   # MediaSoup Network
+   MEDIASOUP_LISTEN_IP=0.0.0.0
+   MEDIASOUP_ANNOUNCED_IP=localhost
+
+   # MediaSoup DTLS (optional - for self-signed certificates)
+   MEDIASOUP_DTLS_CERT_FILE=
+   MEDIASOUP_DTLS_KEY_FILE=
+
+   # WebRTC Settings
+   WEBRTC_MAX_BITRATE=1500000
+   WEBRTC_MIN_BITRATE=500000
+   WEBRTC_MAX_PEER_CONNECTIONS=15
+
+   LOG_LEVEL=info
+   LOG_FORMAT=json
+
+   ENABLE_WEBSOCKET_PROXY=true
+   ENABLE_WEBRTC_STREAMING=true
+   ENABLE_SSE_UPDATES=true
+
    ```
 
 5. **Start services with Docker Compose** (from project root):
