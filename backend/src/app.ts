@@ -14,6 +14,7 @@ import logger from './config/logger';
 import postgresPlugin from './plugins/postgres';
 import securityModule from './modules/security';
 import websocketProxy from './plugins/websocket-proxy';
+import webrtcPlugin from './modules/webrtc';
 
 // Import routes
 import authRoutes from './modules/auth/auth.routes';
@@ -73,6 +74,9 @@ export async function createApp() {
 
   // Security module
   await app.register(securityModule);
+
+  // WebRTC plugin (MediaSoup)
+  await app.register(webrtcPlugin);
 
   // WebSocket proxy
   await app.register(websocketProxy, {
