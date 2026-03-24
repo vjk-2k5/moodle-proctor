@@ -6,6 +6,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { webrtcService } from './webrtc.service';
 import logger from '../../config/logger';
+import { authMiddleware } from '../../middleware/auth.middleware';
 
 // ============================================================================
 // Route Handlers
@@ -19,7 +20,7 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
   app.get<{ Params: { roomId: string } }>(
     '/api/webrtc/rooms/:roomId',
     {
-      onRequest: app.authenticate,
+      onRequest: [authMiddleware],
       schema: {
         summary: 'Get room information',
         tags: ['WebRTC'],
@@ -60,7 +61,7 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
   app.post<{ Body: { roomId: string; examId: number } }>(
     '/api/webrtc/rooms',
     {
-      onRequest: app.authenticate,
+      onRequest: [authMiddleware],
       schema: {
         summary: 'Create WebRTC room',
         tags: ['WebRTC'],
@@ -98,7 +99,7 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
   app.post<{ Params: { roomId: string }; Body: { peerId: string; userId: number; studentName: string } }>(
     '/api/webrtc/rooms/:roomId/peers',
     {
-      onRequest: app.authenticate,
+      onRequest: [authMiddleware],
       schema: {
         summary: 'Join peer to room',
         tags: ['WebRTC'],
@@ -160,7 +161,7 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
   }>(
     '/api/webrtc/rooms/:roomId/peers/:peerId/connect-transport',
     {
-      onRequest: app.authenticate,
+      onRequest: [authMiddleware],
       schema: {
         summary: 'Connect peer transport',
         tags: ['WebRTC'],
@@ -200,7 +201,7 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
   }>(
     '/api/webrtc/rooms/:roomId/peers/:peerId/produce',
     {
-      onRequest: app.authenticate,
+      onRequest: [authMiddleware],
       schema: {
         summary: 'Create producer',
         tags: ['WebRTC'],
@@ -243,7 +244,7 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
   app.get<{ Params: { roomId: string; peerId: string } }>(
     '/api/webrtc/rooms/:roomId/peers/:peerId/consumers',
     {
-      onRequest: app.authenticate,
+      onRequest: [authMiddleware],
       schema: {
         summary: 'Get available consumers',
         tags: ['WebRTC'],
@@ -278,7 +279,7 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
   }>(
     '/api/webrtc/rooms/:roomId/peers/:peerId/consume',
     {
-      onRequest: app.authenticate,
+      onRequest: [authMiddleware],
       schema: {
         summary: 'Create consumer',
         tags: ['WebRTC'],
@@ -325,7 +326,7 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
   app.post<{ Params: { roomId: string; peerId: string; producerId: string } }>(
     '/api/webrtc/rooms/:roomId/peers/:peerId/consumers/:producerId/resume',
     {
-      onRequest: app.authenticate,
+      onRequest: [authMiddleware],
       schema: {
         summary: 'Resume consumer',
         tags: ['WebRTC'],
@@ -358,7 +359,7 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
   app.delete<{ Params: { roomId: string; peerId: string } }>(
     '/api/webrtc/rooms/:roomId/peers/:peerId',
     {
-      onRequest: app.authenticate,
+      onRequest: [authMiddleware],
       schema: {
         summary: 'Remove peer from room',
         tags: ['WebRTC'],

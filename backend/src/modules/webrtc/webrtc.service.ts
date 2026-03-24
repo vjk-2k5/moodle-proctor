@@ -213,7 +213,7 @@ export class WebRTCService {
       );
     });
 
-    transport.on('iceconnectionstatechange', (iceState) => {
+    transport.on('icestatechange', (iceState) => {
       logger.info(
         `Transport ICE state changed: ${iceState} for peer ${peerId}`
       );
@@ -308,7 +308,7 @@ export class WebRTCService {
 
       const can_consume = room.router!.canConsume({
         producerId: otherPeer.producer.id,
-        rtpCapabilities: { codeCs: [] }, // simplified
+        rtpCapabilities: { codecs: [] }, // simplified
       });
 
       if (can_consume) {
