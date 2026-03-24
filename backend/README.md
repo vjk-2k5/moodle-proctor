@@ -1,30 +1,28 @@
 # Moodle-Proctor Backend
 
-> Unified Fastify + TypeScript backend for the Moodle-Proctor system
+Unified Fastify + TypeScript backend for the current repo architecture.
 
-## Status: Foundation Complete ✅
+## Current Role In The Repo
 
-The backend foundation has been successfully implemented with core infrastructure. Several features remain to be completed.
+This is the active backend service for:
 
----
+- Moodle-backed authentication
+- student and exam APIs
+- violation recording
+- teacher dashboard APIs
+- server-sent events for live updates
+- WebSocket proxying to the AI proctoring service
+- manual proctoring compatibility for the Electron client in `manual_proctoring/`
 
-## ✅ Completed Components
+The legacy Express backend under `manual_proctoring/backend/` is archived and should not be used for normal development.
 
-### 1. Docker Infrastructure
-- **Root docker-compose.yml** - All services configured (PostgreSQL, Moodle, Backend, AI Proctoring)
-- **Backend Dockerfile** - Multi-stage production-ready build
-- **Environment Configuration** - .env.example with all required variables
+## Status
 
-### 2. Database Schema
-- **Migration 001** - Core schema (users, exams, exam_attempts, violations, proctoring_sessions, audit_logs)
-- **Migration 002** - Performance indexes for all tables
-- **Migration 003** - Security fields for violations (integrity_hash, ai_signature, client_ip, session_id)
+- Active and typechecking
+- Used by the Electron manual proctoring client
+- Intended to be the single backend entrypoint for repo-level integration work
 
-### 3. Configuration Module
-- **config/index.ts** - Centralized environment variable loading
-- **config/logger.ts** - Winston logger with file/console transports
-- **config/moodle.ts** - Moodle integration configuration (embedded in index.ts)
-- **config/jwt.ts** - JWT configuration (embedded in index.ts)
+## Run
 
 ### 4. PostgreSQL Plugin
 - **plugins/postgres.ts** - Database connection with pooling
@@ -353,65 +351,88 @@ WS     /ws/proctor              # AI service proxy
 
 When implemented:
 ```bash
-npm test                # Run tests
-npm run test:watch      # Watch mode
+cd backend
+npm install
+npm run dev
 ```
 
----
+Default local URL: `http://localhost:5000`
 
-## 🏗️ Building for Production
+Health check:
 
 ```bash
-npm run build           # Compile TypeScript
-npm start              # Run production server
+curl http://localhost:5000/health
 ```
 
-Or with Docker:
+## Core Scripts
+
 ```bash
-docker-compose up -d backend
+npm run dev
+npm run build
+npm start
+npm run migrate
+npm run migrate:status
+npm run seed
+npm run seed:clear
+npm test
 ```
 
----
+## Active Backend Modules
 
-## 📚 Next Steps
+- `src/modules/auth/`
+- `src/modules/student/`
+- `src/modules/exam/`
+- `src/modules/violation/`
+- `src/modules/teacher/`
+- `src/modules/manual-proctoring/`
+- `src/modules/security/`
+- `src/plugins/websocket-proxy.ts`
 
-1. **Implement Student Module** - Basic student API endpoints
-2. **Implement Exam Module** - Exam attempt management
-3. **Implement Violation Module** - Violation tracking
-4. **Implement Security Components** - Signature, replay prevention, rate limiting
-5. **Implement WebSocket Proxy** - Secure AI service integration
-6. **Implement Teacher Module** - Teacher dashboard APIs
-7. **Add Migration Runner** - For applying database migrations
-8. **Add Unit Tests** - Comprehensive test coverage
-9. **Add Integration Tests** - API endpoint tests
+## API Surface At A Glance
 
----
+Authentication:
 
-## 🐛 Troubleshooting
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+- `POST /api/auth/validate`
+- `POST /api/auth/refresh`
 
-### Database Connection Failed
-- Check PostgreSQL is running: `docker ps | grep postgres`
-- Verify DATABASE_URL in .env
-- Check database logs: `docker logs moodle-proctor-db`
+Student/manual client:
 
-### Moodle Authentication Failed
-- Check Moodle is running: `docker ps | grep moodle`
-- Verify MOODLE_BASE_URL is accessible
-- Check MOODLE_SERVICE exists in Moodle
-- Moodle admin: http://localhost:8080 (admin/admin123!)
+- `GET /api/student`
+- `GET /api/session`
+- `GET /api/exam`
+- `GET /api/questions`
+- `POST /api/exam/start`
+- `POST /api/exam/submit`
+- `POST /api/exam/violations`
+- `GET /files/:filename`
 
-### Module Not Found Errors
-- Run `npm install` to install dependencies
-- Check TypeScript compilation: `npm run build`
+Teacher/dashboard:
 
----
+- `GET /api/teacher/exams`
+- `GET /api/teacher/exams/:id`
+- `GET /api/teacher/attempts`
+- `GET /api/teacher/attempts/:id`
+- `GET /api/teacher/attempts/:id/violations`
+- `GET /api/teacher/students`
+- `GET /api/teacher/reports`
+- `GET /api/teacher/stats`
+- `GET /api/teacher/events`
 
-## 📄 License
+Real-time:
 
-MIT
+- `WS /ws/proctor`
 
----
+## Integration Notes
 
-**Last Updated**: 2025-01-15
-**Version**: 1.0.0 (Foundation)
-**Status**: Ready for continued development
+- `manual_proctoring/` uses this backend at `http://localhost:5000`.
+- The manual client identifies itself with the `X-Manual-Proctoring-Client` header.
+- AI proctoring runs separately in `ai_proctoring/` and is reached through the backend WebSocket proxy.
+
+## Known Limitations
+
+- Some auth and role-handling paths are still prototype-grade.
+- Teacher/dashboard and frontend integration are present, but the wider product is not fully production-hardened.
+- The repo still contains historical docs written before the manual backend migration and archive cleanup.
