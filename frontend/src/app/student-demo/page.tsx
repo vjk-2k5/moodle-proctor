@@ -155,11 +155,11 @@ export default function StudentDemoPage() {
               ) : null}
             </form>
           </div>
-
+              
           <LocalVideoPreview stream={localStream} />
         </section>
 
-        <section className="grid gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm lg:grid-cols-3">
+        {/* <section className="grid gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm lg:grid-cols-3">
           <div className="rounded-2xl bg-slate-950 p-5 text-white">
             <p className="text-sm font-semibold">1. Sign in once</p>
             <p className="mt-2 text-sm leading-6 text-slate-300">
@@ -181,7 +181,7 @@ export default function StudentDemoPage() {
               The teacher grid should pick up the stream from the same room.
             </p>
           </div>
-        </section>
+        </section> */}
       </div>
     </main>
   );
