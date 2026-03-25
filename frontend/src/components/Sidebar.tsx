@@ -19,7 +19,7 @@ interface NavItem {
   icon: ReactNode;
 }
 
-const navItems: NavItem[] = [
+export const dashboardNavItems: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: <FiActivity className="h-4 w-4" /> },
   { label: "Live Monitoring", href: "/dashboard/monitoring", icon: <FiMonitor className="h-4 w-4" /> },
   { label: "AI Alerts", href: "/dashboard/alerts", icon: <FiAlertTriangle className="h-4 w-4" /> },
@@ -37,13 +37,13 @@ export const Sidebar = () => {
   };
 
   return (
-    <aside className="dashboard-panel fixed bottom-4 left-4 top-4 z-40 hidden w-72 rounded-[28px] lg:flex lg:flex-col">
+    <aside className="dashboard-panel fixed bottom-4 left-4 top-4 z-40 hidden w-72 overflow-y-auto rounded-[28px] scroll-thin lg:flex lg:flex-col">
       <div className="flex items-center gap-4 border-b border-slate-200/70 px-6 pb-6 pt-7">
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-sm font-bold text-white shadow-lg shadow-slate-900/15">
           PV
         </div>
         <div className="min-w-0">
-          <p className="dashboard-kicker">Teacher Console</p>
+          <p className="dashboard-kicker">Operations Console</p>
           <h1 className="truncate text-lg font-semibold text-slate-900">ProctorVision</h1>
           <p className="mt-1 text-sm text-slate-500">Manage exams, alerts, and live rooms</p>
         </div>
@@ -55,7 +55,7 @@ export const Sidebar = () => {
             Active Session
           </p>
           <p className="mt-3 text-lg font-semibold">Physics Midterm</p>
-          <p className="mt-1 text-sm text-slate-300">Section A · Room 204</p>
+          <p className="mt-1 text-sm text-slate-300">Section A / Room 204</p>
           <div className="mt-4 flex items-center gap-2 text-sm text-emerald-300">
             <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
             Monitoring in progress
@@ -64,7 +64,7 @@ export const Sidebar = () => {
       </div>
 
       <nav className="flex flex-1 flex-col gap-2 px-4">
-        {navItems.map((item) => {
+        {dashboardNavItems.map((item) => {
           const active =
             item.href === "/dashboard"
               ? pathname === item.href
@@ -100,10 +100,10 @@ export const Sidebar = () => {
       <div className="border-t border-slate-200/70 px-4 py-4">
         <div className="mb-3 rounded-2xl bg-blue-50 px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">
-            Invigilator
+            Session Lead
           </p>
           <p className="mt-2 text-sm font-semibold text-slate-900">Dr. Alice Nguyen</p>
-          <p className="text-sm text-slate-500">Senior Teacher</p>
+          <p className="text-sm text-slate-500">Exam Operations</p>
         </div>
         <button
           type="button"

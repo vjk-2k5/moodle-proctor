@@ -6,19 +6,19 @@ import { FiActivity, FiBell, FiClock, FiUsers } from "react-icons/fi";
 
 const pageMeta: Record<string, { title: string; subtitle: string }> = {
   "/dashboard": {
-    title: "Teacher Dashboard",
+    title: "Operations Dashboard",
     subtitle: "Track exam health, watch live rooms, and respond quickly to risk."
   },
   "/dashboard/monitoring": {
     title: "Live Monitoring",
-    subtitle: "Observe student feeds, connection quality, and active proctoring coverage."
+    subtitle: "Observe participant feeds, connection quality, and active proctoring coverage."
   },
   "/dashboard/alerts": {
     title: "Alerts Review",
     subtitle: "Prioritize suspicious behavior and resolve AI flags with context."
   },
   "/dashboard/students": {
-    title: "Student Roster",
+    title: "Participant Roster",
     subtitle: "Review attendance, monitoring status, and connectivity across the session."
   },
   "/dashboard/reports": {
@@ -26,8 +26,8 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
     subtitle: "Access evidence packs, summaries, and post-exam follow-up items."
   },
   "/dashboard/settings": {
-    title: "Dashboard Settings",
-    subtitle: "Tune your monitoring workspace and teaching operations preferences."
+    title: "Workspace Settings",
+    subtitle: "Tune your monitoring workspace and operations preferences."
   }
 };
 
@@ -88,7 +88,7 @@ export const TopNavbar = () => {
             </div>
             <div>
               <p className="text-sm font-semibold">Dr. Alice Nguyen</p>
-              <p className="text-xs text-slate-300">Lead Invigilator</p>
+              <p className="text-xs text-slate-300">Session Lead</p>
             </div>
           </div>
         </div>
