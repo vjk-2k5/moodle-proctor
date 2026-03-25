@@ -14,12 +14,11 @@ ENV PYTHONUNBUFFERED=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # PortAudio dependencies for pyaudio
     libportaudio2 \
-    libportaudiocpp0 \
     ffmpeg \
     libsm6 \
     libxext6 \
     libxrender-dev \
-    libgl1-mesa-glx \
+    libgl1 \
     wget \
     && rm -rf /var/lib/apt/lists/*
 

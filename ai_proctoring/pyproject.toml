@@ -3,7 +3,7 @@ name = "ai-proctoring"
 version = "3.0.0"
 description = "AI Proctoring System with computer vision detectors"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 dependencies = [
     # Core vision
     "opencv-python>=4.9.0",
@@ -11,8 +11,8 @@ dependencies = [
     "ultralytics>=8.1.0",
     "numpy>=1.24.0",
 
-    # Audio detection
-    "pyaudio>=0.2.14",
+    # Audio detection - requires system dependencies (portaudio19-dev, python3-dev)
+    # "pyaudio>=0.2.14",
 
     # Tab/window monitoring (Windows only)
     "pywin32>=306; sys_platform == 'win32'",
@@ -31,7 +31,10 @@ dependencies = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.uv]
-dev-dependencies = []
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[dependency-groups]
+dev = []
 
 [tool.uv.sources]
