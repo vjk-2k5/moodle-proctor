@@ -329,7 +329,7 @@ class DatabaseSeeder {
           integrity_hash, client_ip, session_id
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
-          3, // attempt_id
+          4, // attempt_id (student4 / terminated attempt)
           type,
           'warning',
           `Violation ${i + 1}: ${type.replace('_', ' ')}`,

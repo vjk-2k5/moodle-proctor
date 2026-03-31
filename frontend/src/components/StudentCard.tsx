@@ -18,7 +18,19 @@ const connectionTone: Record<Student["connection"], string> = {
   Poor: "text-red-700 bg-red-50 border-red-200"
 };
 
-export const StudentCard = ({ student }: Props) => {
+export const StudentCard = ({ student, onWarn, onScreenshot, onKick }: Props) => {
+  const [showKickConfirm, setShowKickConfirm] = useState(false);
+
+  const handleWarn = () => {
+    onWarn?.(student.id);
+    setShowKickConfirm(false);
+  };
+
+  const handleScreenshot = () => {
+    onScreenshot?.(student.id);
+    setShowKickConfirm(false);
+  };
+
   return (
     <article className="dashboard-panel-strong overflow-hidden rounded-[24px] transition-transform duration-200 hover:-translate-y-0.5">
       <div className="relative aspect-video bg-slate-950">
@@ -96,6 +108,31 @@ export const StudentCard = ({ student }: Props) => {
             Kick
           </button>
         </div>
+
+        {showKickConfirm && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
+            <p className="text-sm font-medium text-red-900">
+              Remove {student.name} from the monitoring room?
+            </p>
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                onClick={() => setShowKickConfirm(false)}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  onKick?.(student.id);
+                  setShowKickConfirm(false);
+                }}
+                className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-700"
+              >
+                Confirm kick
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </article>
   );

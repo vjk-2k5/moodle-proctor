@@ -24,6 +24,65 @@ import type {
 export class TeacherService {
   constructor(private pg: Pool) {}
 
+  private readonly allowedAttemptSortColumns: Record<NonNullable<ListAttemptsQuery['sortBy']>, string> = {
+    created_at: 'ea.created_at',
+    started_at: 'ea.started_at',
+    submitted_at: 'ea.submitted_at',
+    violation_count: 'ea.violation_count'
+  };
+
+  private buildAttemptWhereClause(
+    query: {
+      examId?: number;
+      userId?: number;
+      startDate?: string;
+      endDate?: string;
+    },
+    options?: {
+      status?: ListAttemptsQuery['status'];
+      examColumn?: string;
+      userColumn?: string;
+      dateColumn?: string;
+    }
+  ): { clause: string; params: any[] } {
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    const examColumn = options?.examColumn || 'ea.exam_id';
+    const userColumn = options?.userColumn || 'ea.user_id';
+    const dateColumn = options?.dateColumn || 'ea.created_at';
+
+    if (query.examId) {
+      params.push(query.examId);
+      conditions.push(`${examColumn} = $${params.length}`);
+    }
+
+    if (options?.status) {
+      params.push(options.status);
+      conditions.push(`ea.status = $${params.length}`);
+    }
+
+    if (query.userId) {
+      params.push(query.userId);
+      conditions.push(`${userColumn} = $${params.length}`);
+    }
+
+    if (query.startDate) {
+      params.push(query.startDate);
+      conditions.push(`${dateColumn} >= $${params.length}`);
+    }
+
+    if (query.endDate) {
+      params.push(query.endDate);
+      conditions.push(`${dateColumn} <= $${params.length}`);
+    }
+
+    return {
+      clause: conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '',
+      params
+    };
+  }
+
   // ==========================================================================
   // Exams
   // ==========================================================================
@@ -32,7 +91,15 @@ export class TeacherService {
    * List all exams with optional filters
    */
   async listExams(filters?: { examId?: number }): Promise<TeacherExamListResponse> {
-    let query = `
+    const params: any[] = [];
+    const whereClause = filters?.examId
+      ? (() => {
+          params.push(filters.examId);
+          return `WHERE e.id = $${params.length}`;
+        })()
+      : '';
+
+    const query = `
       SELECT
         e.id,
         e.moodle_course_id as "moodleCourseId",
@@ -47,16 +114,10 @@ export class TeacherService {
         COUNT(DISTINCT ea.id) as "totalAttempts"
       FROM exams e
       LEFT JOIN exam_attempts ea ON e.id = ea.exam_id
+      ${whereClause}
       GROUP BY e.id
       ORDER BY e.created_at DESC
     `;
-
-    const params: any[] = [];
-
-    if (filters?.examId) {
-      query += ` WHERE e.id = $${params.length + 1}`;
-      params.push(filters.examId);
-    }
 
     const result = await this.pg.query(query, params);
 
@@ -114,45 +175,14 @@ export class TeacherService {
    * List attempts with filtering
    */
   async listAttempts(query: ListAttemptsQuery): Promise<TeacherAttemptListResponse> {
-    const conditions: string[] = [];
-    const params: any[] = [];
-    let paramCount = 0;
-
-    if (query.examId) {
-      paramCount++;
-      conditions.push(`ea.exam_id = $${paramCount}`);
-      params.push(query.examId);
-    }
-
-    if (query.status) {
-      paramCount++;
-      conditions.push(`ea.status = $${paramCount}`);
-      params.push(query.status);
-    }
-
-    if (query.userId) {
-      paramCount++;
-      conditions.push(`ea.user_id = $${paramCount}`);
-      params.push(query.userId);
-    }
-
-    if (query.startDate) {
-      paramCount++;
-      conditions.push(`ea.created_at >= $${paramCount}`);
-      params.push(query.startDate);
-    }
-
-    if (query.endDate) {
-      paramCount++;
-      conditions.push(`ea.created_at <= $${paramCount}`);
-      params.push(query.endDate);
-    }
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { clause: whereClause, params } = this.buildAttemptWhereClause(query, {
+      status: query.status
+    });
+    const filterParamCount = params.length;
 
     // Default sort
-    const sortBy = query.sortBy || 'created_at';
-    const sortOrder = query.sortOrder || 'DESC';
+    const sortBy = this.allowedAttemptSortColumns[query.sortBy || 'created_at'];
+    const sortOrder = query.sortOrder === 'ASC' ? 'ASC' : 'DESC';
     const limit = Math.min(query.limit || 50, 100); // Max 100
     const offset = query.offset || 0;
 
@@ -181,7 +211,7 @@ export class TeacherService {
       JOIN users u ON ea.user_id = u.id
       ${whereClause}
       ORDER BY ${sortBy} ${sortOrder}
-      LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
+      LIMIT $${filterParamCount + 1} OFFSET $${filterParamCount + 2}
     `;
 
     params.push(limit, offset);
@@ -194,8 +224,8 @@ export class TeacherService {
     `;
 
     const [dataResult, countResult] = await Promise.all([
-      this.pg.query(dataQuery, params.slice(0, paramCount + 2)),
-      this.pg.query(countQuery, params.slice(0, paramCount))
+      this.pg.query(dataQuery, params),
+      this.pg.query(countQuery, params.slice(0, filterParamCount))
     ]);
 
     return {
@@ -226,6 +256,8 @@ export class TeacherService {
         ea.ip_address as "ipAddress",
         e.exam_name as "examName",
         e.course_name as "courseName",
+        e.moodle_course_id as "moodleCourseId",
+        e.moodle_course_module_id as "moodleCourseModuleId",
         e.duration_minutes as "durationMinutes",
         e.max_warnings as "maxWarnings",
         u.username,
@@ -247,11 +279,7 @@ export class TeacherService {
     const attempt = this.mapAttemptRow(attemptResult.rows[0]);
 
     // Get exam details
-    const exam = this.mapExamRow({
-      ...attemptResult.rows[0],
-      moodle_course_id: attemptResult.rows[0].moodleCourseId || 0,
-      moodle_course_module_id: attemptResult.rows[0].moodleCourseModuleId || 0
-    });
+    const exam = this.mapExamRow(attemptResult.rows[0]);
 
     // Get user details
     const user = {
@@ -380,6 +408,8 @@ export class TeacherService {
     const params: any[] = [];
     let paramCount = 0;
 
+    conditions.push("u.role = 'student'");
+
     if (query.search) {
       paramCount++;
       conditions.push(`(
@@ -389,6 +419,17 @@ export class TeacherService {
         u.last_name ILIKE $${paramCount}
       )`);
       params.push(`%${query.search}%`);
+    }
+
+    if (query.examId) {
+      paramCount++;
+      conditions.push(`EXISTS (
+        SELECT 1
+        FROM exam_attempts ea
+        WHERE ea.user_id = u.id
+        AND ea.exam_id = $${paramCount}
+      )`);
+      params.push(query.examId);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -431,11 +472,11 @@ export class TeacherService {
           id: row.id,
           username: row.username,
           email: row.email,
-          firstName: row.first_name,
-          lastName: row.last_name,
+          firstName: row.firstName,
+          lastName: row.lastName,
           role: row.role,
-          profileImageUrl: row.profile_image_url,
-          lastLoginAt: row.last_login_at
+          profileImageUrl: row.profileImageUrl,
+          lastLoginAt: row.lastLoginAt
         })),
         total: parseInt(countResult.rows[0].count, 10)
       }
@@ -450,41 +491,79 @@ export class TeacherService {
    * Generate reports
    */
   async listReports(query: ListReportsQuery): Promise<TeacherReportListResponse> {
-    const conditions: string[] = [];
-    const params: any[] = [];
-    let paramCount = 0;
-
-    if (query.examId) {
-      paramCount++;
-      conditions.push(`ea.exam_id = $${paramCount}`);
-      params.push(query.examId);
-    }
-
-    if (query.userId) {
-      paramCount++;
-      conditions.push(`ea.user_id = $${paramCount}`);
-      params.push(query.userId);
-    }
-
-    if (query.startDate) {
-      paramCount++;
-      conditions.push(`ea.created_at >= $${paramCount}`);
-      params.push(query.startDate);
-    }
-
-    if (query.endDate) {
-      paramCount++;
-      conditions.push(`ea.created_at <= $${paramCount}`);
-      params.push(query.endDate);
-    }
+    const { clause: whereClause, params } = this.buildAttemptWhereClause(query);
+    let filterParamCount = params.length;
 
     if (query.minViolations) {
-      paramCount++;
-      conditions.push(`ea.violation_count >= $${paramCount}`);
       params.push(query.minViolations);
-    }
+      filterParamCount++;
+      const prefix = whereClause ? `${whereClause} AND` : 'WHERE';
+      const minViolationsClause = `${prefix} ea.violation_count >= $${filterParamCount}`;
+      const limit = Math.min(query.limit || 100, 500);
+      const offset = query.offset || 0;
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      const dataQuery = `
+      SELECT
+        ea.id as "attemptId",
+        e.exam_name as "examName",
+        e.course_name as "courseName",
+        TRIM(CONCAT(u.first_name, ' ', u.last_name)) as "studentName",
+        u.email as "studentEmail",
+        ea.status,
+        ea.started_at as "startedAt",
+        ea.submitted_at as "submittedAt",
+        ea.submission_reason as "submissionReason",
+        ea.violation_count as "violationCount",
+        e.duration_minutes as "durationMinutes",
+        ea.ip_address as "ipAddress"
+      FROM exam_attempts ea
+      JOIN exams e ON ea.exam_id = e.id
+      JOIN users u ON ea.user_id = u.id
+      ${minViolationsClause}
+      ORDER BY ea.created_at DESC
+      LIMIT $${filterParamCount + 1} OFFSET $${filterParamCount + 2}
+    `;
+
+      params.push(limit, offset);
+
+      const countQuery = `
+      SELECT COUNT(*) as count
+      FROM exam_attempts ea
+      ${minViolationsClause}
+    `;
+
+      const [dataResult, countResult] = await Promise.all([
+        this.pg.query(dataQuery, params),
+        this.pg.query(countQuery, params.slice(0, filterParamCount))
+      ]);
+
+      const reports = dataResult.rows.map(row => ({
+        attemptId: row.attemptId,
+        examName: row.examName,
+        courseName: row.courseName,
+        studentName: row.studentName,
+        studentEmail: row.studentEmail,
+        status: row.status,
+        startedAt: row.startedAt,
+        submittedAt: row.submittedAt,
+        submissionReason: row.submissionReason,
+        violationCount: row.violationCount,
+        durationMinutes: row.durationMinutes,
+        ipAddress: row.ipAddress,
+        violations: {
+          total: row.violationCount,
+          byType: {}
+        }
+      }));
+
+      return {
+        success: true,
+        data: {
+          reports,
+          total: parseInt(countResult.rows[0].count, 10)
+        }
+      };
+    }
 
     const limit = Math.min(query.limit || 100, 500);
     const offset = query.offset || 0;
@@ -494,7 +573,7 @@ export class TeacherService {
         ea.id as "attemptId",
         e.exam_name as "examName",
         e.course_name as "courseName",
-        u.first_name || ' ' || u.last_name as "studentName",
+        TRIM(CONCAT(u.first_name, ' ', u.last_name)) as "studentName",
         u.email as "studentEmail",
         ea.status,
         ea.started_at as "startedAt",
@@ -508,7 +587,7 @@ export class TeacherService {
       JOIN users u ON ea.user_id = u.id
       ${whereClause}
       ORDER BY ea.created_at DESC
-      LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
+      LIMIT $${filterParamCount + 1} OFFSET $${filterParamCount + 2}
     `;
 
     params.push(limit, offset);
@@ -521,8 +600,8 @@ export class TeacherService {
     `;
 
     const [dataResult, countResult] = await Promise.all([
-      this.pg.query(dataQuery, params.slice(0, paramCount + 2)),
-      this.pg.query(countQuery, params.slice(0, paramCount))
+      this.pg.query(dataQuery, params),
+      this.pg.query(countQuery, params.slice(0, filterParamCount))
     ]);
 
     const reports = dataResult.rows.map(row => ({
@@ -539,7 +618,7 @@ export class TeacherService {
       durationMinutes: row.durationMinutes,
       ipAddress: row.ipAddress,
       violations: {
-        total: 0,
+        total: row.violationCount,
         byType: {}
       }
     }));
@@ -562,22 +641,39 @@ export class TeacherService {
    */
   async getStats(query: GetStatsQuery): Promise<TeacherStatsResponse> {
     const timeRange = query.timeRange || 'all';
-    let timeFilter = '';
+    const params: any[] = [];
+    const attemptConditions: string[] = [];
+    const violationConditions: string[] = [];
 
     if (timeRange === 'hour') {
-      timeFilter = "AND ea.created_at >= NOW() - INTERVAL '1 hour'";
+      attemptConditions.push(`ea.created_at >= NOW() - INTERVAL '1 hour'`);
+      violationConditions.push(`ea.created_at >= NOW() - INTERVAL '1 hour'`);
     } else if (timeRange === 'day') {
-      timeFilter = "AND ea.created_at >= NOW() - INTERVAL '1 day'";
+      attemptConditions.push(`ea.created_at >= NOW() - INTERVAL '1 day'`);
+      violationConditions.push(`ea.created_at >= NOW() - INTERVAL '1 day'`);
     } else if (timeRange === 'week') {
-      timeFilter = "AND ea.created_at >= NOW() - INTERVAL '1 week'";
+      attemptConditions.push(`ea.created_at >= NOW() - INTERVAL '1 week'`);
+      violationConditions.push(`ea.created_at >= NOW() - INTERVAL '1 week'`);
     } else if (timeRange === 'month') {
-      timeFilter = "AND ea.created_at >= NOW() - INTERVAL '1 month'";
+      attemptConditions.push(`ea.created_at >= NOW() - INTERVAL '1 month'`);
+      violationConditions.push(`ea.created_at >= NOW() - INTERVAL '1 month'`);
     }
 
-    const examFilter = query.examId ? `AND ea.exam_id = ${query.examId}` : '';
+    if (query.examId) {
+      params.push(query.examId);
+      const examCondition = `ea.exam_id = $${params.length}`;
+      attemptConditions.push(examCondition);
+      violationConditions.push(examCondition);
+    }
+
+    const attemptFilter = attemptConditions.length > 0 ? `AND ${attemptConditions.join(' AND ')}` : '';
+    const attemptWhere = attemptConditions.length > 0 ? `WHERE ${attemptConditions.join(' AND ')}` : '';
+    const violationWhere = violationConditions.length > 0 ? `WHERE ${violationConditions.join(' AND ')}` : '';
+    const examWhere = query.examId ? `WHERE e.id = $${params.length}` : '';
 
     // Get overview stats
-    const overviewResult = await this.pg.query(`
+    const overviewResult = await this.pg.query(
+      `
       SELECT
         COUNT(DISTINCT e.id) as "totalExams",
         COUNT(ea.id) as "totalAttempts",
@@ -585,48 +681,73 @@ export class TeacherService {
         COUNT(ea.id) FILTER (WHERE ea.status = 'submitted') as "completedAttempts",
         COUNT(ea.id) FILTER (WHERE ea.status = 'terminated') as "terminatedAttempts"
       FROM exams e
-      LEFT JOIN exam_attempts ea ON e.id = ea.exam_id ${timeFilter} ${examFilter}
-    `);
+      LEFT JOIN exam_attempts ea ON e.id = ea.exam_id ${attemptFilter}
+      ${examWhere}
+    `,
+      params
+    );
 
     // Get violation stats
-    const violationsResult = await this.pg.query(`
+    const violationsResult = await this.pg.query(
+      `
+      WITH filtered_violations AS (
+        SELECT
+          v.violation_type,
+          v.severity,
+          v.occurred_at
+        FROM violations v
+        JOIN exam_attempts ea ON v.attempt_id = ea.id
+        ${violationWhere}
+      ),
+      violation_counts AS (
+        SELECT
+          violation_type,
+          COUNT(*)::int as count
+        FROM filtered_violations
+        GROUP BY violation_type
+      )
       SELECT
-        COUNT(*) as total,
-        COUNT(*) FILTER (WHERE v.occurred_at >= NOW() - INTERVAL '24 hours') as "inLast24Hours",
-        json_object_agg(v.violation_type, COUNT(*)) as "byType",
-        COUNT(*) FILTER (WHERE v.severity = 'warning') as warnings,
-        COUNT(*) FILTER (WHERE v.severity = 'info') as info
-      FROM violations v
-      JOIN exam_attempts ea ON v.attempt_id = ea.id
-      WHERE TRUE ${timeFilter} ${examFilter}
-    `);
+        (SELECT COUNT(*)::int FROM filtered_violations) as total,
+        (SELECT COUNT(*)::int FROM filtered_violations WHERE occurred_at >= NOW() - INTERVAL '24 hours') as "inLast24Hours",
+        COALESCE((SELECT json_object_agg(violation_type, count) FROM violation_counts), '{}'::json) as "byType",
+        (SELECT COUNT(*)::int FROM filtered_violations WHERE severity = 'warning') as warnings,
+        (SELECT COUNT(*)::int FROM filtered_violations WHERE severity = 'info') as info
+    `,
+      params
+    );
 
     // Get student stats
-    const studentsResult = await this.pg.query(`
+    const studentsResult = await this.pg.query(
+      `
       SELECT
         COUNT(DISTINCT u.id) as "total",
         COUNT(DISTINCT u.id) FILTER (WHERE ea.status = 'in_progress') as "active"
       FROM users u
       LEFT JOIN exam_attempts ea ON u.id = ea.user_id
-      WHERE u.role = 'student' ${timeFilter} ${examFilter}
-    `);
+      WHERE u.role = 'student' ${attemptFilter}
+    `,
+      params
+    );
 
     // Get exam status stats
-    const examsResult = await this.pg.query(`
+    const examsResult = await this.pg.query(
+      `
       SELECT
         COUNT(*) FILTER (WHERE ea.status = 'in_progress') as "ongoing",
         COUNT(*) FILTER (WHERE ea.status = 'submitted') as "completed"
       FROM exam_attempts ea
-      WHERE TRUE ${timeFilter} ${examFilter}
-    `);
+      ${attemptWhere}
+    `,
+      params
+    );
 
     const stats: TeacherStats = {
-      overview: overviewResult.rows[0] || {
-        totalExams: 0,
-        totalAttempts: 0,
-        activeAttempts: 0,
-        completedAttempts: 0,
-        terminatedAttempts: 0
+      overview: {
+        totalExams: parseInt(overviewResult.rows[0]?.totalExams || '0', 10),
+        totalAttempts: parseInt(overviewResult.rows[0]?.totalAttempts || '0', 10),
+        activeAttempts: parseInt(overviewResult.rows[0]?.activeAttempts || '0', 10),
+        completedAttempts: parseInt(overviewResult.rows[0]?.completedAttempts || '0', 10),
+        terminatedAttempts: parseInt(overviewResult.rows[0]?.terminatedAttempts || '0', 10)
       },
       violations: {
         total: parseInt(violationsResult.rows[0]?.total || '0', 10),
@@ -637,9 +758,9 @@ export class TeacherService {
           info: parseInt(violationsResult.rows[0]?.info || '0', 10)
         }
       },
-      students: studentsResult.rows[0] || {
-        total: 0,
-        active: 0
+      students: {
+        total: parseInt(studentsResult.rows[0]?.total || '0', 10),
+        active: parseInt(studentsResult.rows[0]?.active || '0', 10)
       },
       exams: {
         upcoming: 0, // Would need exam scheduling data

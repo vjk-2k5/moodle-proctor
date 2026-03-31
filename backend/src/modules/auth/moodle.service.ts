@@ -45,6 +45,33 @@ interface MoodleUser {
   userpictureurl?: string;
 }
 
+const TEACHER_ROLE_HINTS = [
+  'admin',
+  'teacher',
+  'faculty',
+  'instructor',
+  'lecturer',
+  'professor',
+  'proctor',
+  'invigilator'
+];
+
+export function inferMoodleRoleFromIdentity(identity: {
+  username?: string;
+  email?: string;
+}): 'student' | 'teacher' {
+  const normalizedUsername = identity.username?.trim().toLowerCase() || '';
+  const normalizedEmail = identity.email?.trim().toLowerCase() || '';
+  const emailLocalPart = normalizedEmail.split('@')[0] || '';
+
+  const hasTeacherHint = (value: string) =>
+    TEACHER_ROLE_HINTS.some(hint => value === hint || value.includes(hint));
+
+  return hasTeacherHint(normalizedUsername) || hasTeacherHint(emailLocalPart)
+    ? 'teacher'
+    : 'student';
+}
+
 // ============================================================================
 // Moodle Service
 // ============================================================================
@@ -178,18 +205,11 @@ class MoodleService {
     userId: number;
     role: 'student' | 'teacher';
   }> {
-    // For now, we'll do a simple role determination
-    // In production, you might want to call Moodle APIs to get user roles
-    // For this implementation, we'll treat all users as students by default
-    // Teachers can be manually promoted in the database or via Moodle role checks
+    const role = inferMoodleRoleFromIdentity(siteInfo);
 
-    // TODO: Implement proper role detection via Moodle API
-    // Potential approach: Call core_enrol_get_users_courses and check for editing teacher role
-
-    const role: 'student' | 'teacher' = 'student'; // Default to student
-
-    // TODO: Store/update user in database via user service
-    // This will be implemented when we create the user service
+    if (role === 'teacher') {
+      logger.info(`Resolved Moodle user ${siteInfo.username || siteInfo.email} as teacher`);
+    }
 
     return {
       userId: siteInfo.userid,

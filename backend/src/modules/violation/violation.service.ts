@@ -113,10 +113,10 @@ export class ViolationService {
 
       // Get updated violation count
       const countResult = await client.query<{ count: string; max_warnings: number }>(
-        `SELECT ea.violation_count, e.max_warnings
-        FROM exam_attempts ea
-        JOIN exams e ON ea.exam_id = e.id
-        WHERE ea.id = $1`,
+        `SELECT ea.violation_count::text as count, e.max_warnings
+         FROM exam_attempts ea
+         JOIN exams e ON ea.exam_id = e.id
+         WHERE ea.id = $1`,
         [attemptId]
       );
 
@@ -129,10 +129,7 @@ export class ViolationService {
 
       // Auto-submit if threshold reached
       if (shouldAutoSubmit) {
-        // Trigger auto-submit in background
-        this.examService.autoSubmitExam(attemptId).catch(error => {
-          console.error(`Failed to auto-submit attempt ${attemptId}:`, error);
-        });
+        await this.examService.autoSubmitExam(attemptId);
       }
 
       return {

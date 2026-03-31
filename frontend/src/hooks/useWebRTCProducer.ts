@@ -14,6 +14,7 @@ interface WebRTCProducerConfig {
   peerId: string;
   studentName: string;
   backendUrl: string;
+  requestHeaders?: HeadersInit;
 }
 
 interface BackendTransportParams {
@@ -46,6 +47,13 @@ export function useWebRTCProducer(config: WebRTCProducerConfig) {
   const fetchJson = useCallback(
     async <T,>(input: string, init?: RequestInit): Promise<T> => {
       const headers = new Headers(init?.headers);
+      const requestHeaders = new Headers(config.requestHeaders);
+
+      requestHeaders.forEach((value, key) => {
+        if (!headers.has(key)) {
+          headers.set(key, value);
+        }
+      });
 
       if (init?.body && !headers.has('Content-Type')) {
         headers.set('Content-Type', 'application/json');
@@ -64,13 +72,14 @@ export function useWebRTCProducer(config: WebRTCProducerConfig) {
 
       return response.json() as Promise<T>;
     },
-    []
+    [config.requestHeaders]
   );
 
   const ensureRoom = useCallback(async () => {
     const roomUrl = `${config.backendUrl}/api/webrtc/rooms/${config.roomId}`;
     const roomResponse = await fetch(roomUrl, {
       credentials: 'include',
+      headers: config.requestHeaders,
     });
 
     if (roomResponse.ok) {
@@ -118,11 +127,12 @@ export function useWebRTCProducer(config: WebRTCProducerConfig) {
         {
           method: 'DELETE',
           credentials: 'include',
+          headers: config.requestHeaders,
         }
       ).catch(() => {});
       hasJoinedRef.current = false;
     }
-  }, [config.backendUrl, config.peerId, config.roomId]);
+  }, [config.backendUrl, config.peerId, config.requestHeaders, config.roomId]);
 
   const startBroadcast = useCallback(async () => {
     try {

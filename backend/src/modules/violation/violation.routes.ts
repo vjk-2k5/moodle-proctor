@@ -4,7 +4,7 @@
 // ============================================================================
 
 import fp from 'fastify-plugin';
-import { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { createViolationService } from './violation.service';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import type { ReportViolationRequest } from './violation.schema';
@@ -13,6 +13,7 @@ import {
   isManualProctoringRequest
 } from '../manual-proctoring/manual-proctoring.compat';
 import { recordManualViolation } from '../manual-proctoring/manual-proctoring.compat';
+import { getCompatibilityAttemptSnapshot } from '../room/room-enrollment.service';
 
 // ============================================================================
 // Routes Plugin
@@ -29,8 +30,8 @@ export default fp(async (fastify: FastifyInstance) => {
     onRequest: [authMiddleware], // TODO: Add role check middleware and rate limiting
     config: {
       rateLimit: {
-        limit: 100, // 100 violations per minute per user
-        window: 60000
+        max: 100,
+        timeWindow: '1 minute'
       }
     },
     schema: {
@@ -52,12 +53,16 @@ export default fp(async (fastify: FastifyInstance) => {
         }
       }
     },
-    handler: async (request, reply) => {
+    handler: async (request: FastifyRequest, reply: FastifyReply) => {
       // @ts-ignore
       const userId = request.user.id;
+      const roomEnrollment = (request as any).roomEnrollment as
+        | { attemptId: number | null; maxWarnings: number }
+        | undefined;
       const body = (request.body || {}) as ReportViolationRequest & { type?: string };
+      const resolvedAttemptId = body.attemptId || roomEnrollment?.attemptId || undefined;
 
-      if (isManualProctoringRequest(request)) {
+      if (!roomEnrollment && isManualProctoringRequest(request)) {
         const session = getManualSessionFromRequest(request as any);
 
         if (!session) {
@@ -80,7 +85,7 @@ export default fp(async (fastify: FastifyInstance) => {
         });
       }
 
-      if (!body.attemptId || !body.violationType) {
+      if (!resolvedAttemptId || !body.violationType) {
         return reply.code(400).send({
           success: false,
           error: 'Attempt ID and violation type are required',
@@ -93,7 +98,32 @@ export default fp(async (fastify: FastifyInstance) => {
       const signatureService = fastify.security?.signatureService;
 
       try {
-        const result = await violationService.recordViolation(body, userId, signatureService);
+        const result = await violationService.recordViolation(
+          {
+            ...body,
+            attemptId: resolvedAttemptId,
+            violationType: body.violationType || body.type || 'unknown'
+          },
+          userId,
+          signatureService
+        );
+
+        if (roomEnrollment) {
+          const attempt = await getCompatibilityAttemptSnapshot(
+            fastify.pg as any,
+            resolvedAttemptId,
+            roomEnrollment.maxWarnings
+          );
+
+          return reply.code(200).send({
+            success: true,
+            attempt,
+            violation: result.data.violation,
+            ...(result.data.shouldAutoSubmit
+              ? { message: 'Auto-submit threshold reached - exam submitted automatically' }
+              : {})
+          });
+        }
 
         // If auto-submit was triggered, return special status
         if (result.data.shouldAutoSubmit) {

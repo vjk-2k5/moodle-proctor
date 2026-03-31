@@ -7,15 +7,18 @@ import { VideoStream } from './VideoStream';
 
 const MAX_VISIBLE_SLOTS = 15;
 
-export const StudentsGrid = () => {
-  const roomId = 'exam-monitoring-room';
+interface StudentsGridProps {
+  roomId?: string;
+}
+
+export const StudentsGrid = ({ roomId = 'exam-monitoring-room' }: StudentsGridProps) => {
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
   const hasAutoJoined = useRef(false);
-  const previousRoomId = useRef<number | undefined>(undefined);
+  const previousRoomId = useRef<string | undefined>(undefined);
 
   const teacherPeerId = useRef(`teacher-${Date.now()}`);
 
-  const { peers, isConnected, error, joinRoom, getRemoteStreams } = useWebRTC({
+  const { peers, isConnected, error, joinRoom, leaveRoom, getRemoteStreams } = useWebRTC({
     roomId,
     peerId: teacherPeerId.current,
     userId: 0,
@@ -64,7 +67,7 @@ export const StudentsGrid = () => {
       hasAutoJoined.current = true;
       joinRoom().catch(console.error);
     }
-  }, []); // Only run on mount
+  }, [joinRoom]); // Only run on mount
 
   if (error) {
     return (
@@ -89,6 +92,9 @@ export const StudentsGrid = () => {
             <p className="mt-2 text-sm leading-6 text-slate-500">
               Review active feeds, connection stability, and camera readiness from a
               single monitoring surface.
+            </p>
+            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+              Room: {roomId}
             </p>
           </div>
 

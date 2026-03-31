@@ -153,14 +153,13 @@ export class ProctoringRoomService {
   constructor(private pg: Pool) {}
 
   /**
-   * Generate a random 8-character base62 room code
-   * Base62: 0-9, a-z, A-Z (62 characters)
-   * 8 chars = 62^8 = 218 trillion combinations
+   * Generate a random 8-character uppercase invite code
+   * Uses digits plus uppercase letters to keep the code easy to type and read
    * Uses cryptographically secure random bytes
    */
   private generateRoomCode(): string {
-    const chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    // Generate 8 random bytes and convert to base62
+    const chars = '0123456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+    // Generate 8 random bytes and convert to a human-friendly uppercase code
     const bytes = randomBytes(8);
     let code = '';
     for (let i = 0; i < 8; i++) {
@@ -225,7 +224,7 @@ export class ProctoringRoomService {
 
       // Check if code already exists
       const existingResult = await this.pg.query(
-        'SELECT id FROM proctoring_rooms WHERE room_code = $1',
+        'SELECT id FROM proctoring_rooms WHERE UPPER(room_code) = UPPER($1)',
         [roomCode]
       );
 
@@ -264,7 +263,7 @@ export class ProctoringRoomService {
          e.course_name
        FROM proctoring_rooms pr
        JOIN exams e ON pr.exam_id = e.id
-       WHERE pr.room_code = $1`,
+       WHERE UPPER(pr.room_code) = UPPER($1)`,
       [roomCode]
     );
 
@@ -453,7 +452,7 @@ export class ProctoringRoomService {
     userId: number;
     studentName: string;
     studentEmail: string;
-  }): Promise<{ id: number }> {
+  }): Promise<{ id: number; alreadyEnrolled?: boolean }> {
     const { roomId, studentName, studentEmail } = params;
 
     // Sanitize inputs to prevent XSS
@@ -471,6 +470,23 @@ export class ProctoringRoomService {
     }
 
     const room = roomResult.rows[0];
+
+    // If the student already joined this room, return the existing enrollment so reconnects work.
+    const existingEnrollmentResult = await this.pg.query<{ id: number }>(
+      `SELECT id
+       FROM proctoring_room_students
+       WHERE room_id = $1
+       AND LOWER(student_email) = LOWER($2)
+       LIMIT 1`,
+      [roomId, sanitizedEmail]
+    );
+
+    if (existingEnrollmentResult.rows.length > 0) {
+      return {
+        id: existingEnrollmentResult.rows[0].id,
+        alreadyEnrolled: true
+      };
+    }
 
     // 2. Atomic INSERT with capacity check (prevents TOCTOU race condition)
     // The subquery ensures capacity is checked at insert time, not before
@@ -493,11 +509,26 @@ export class ProctoringRoomService {
 
       return { id: insertResult.rows[0].id };
     } catch (error: any) {
-      // Check if it's a unique constraint violation (duplicate enrollment)
       if (error.code === '23505') {
-        // duplicate key violation
+        const duplicateEnrollmentResult = await this.pg.query<{ id: number }>(
+          `SELECT id
+           FROM proctoring_room_students
+           WHERE room_id = $1
+           AND LOWER(student_email) = LOWER($2)
+           LIMIT 1`,
+          [roomId, sanitizedEmail]
+        );
+
+        if (duplicateEnrollmentResult.rows.length > 0) {
+          return {
+            id: duplicateEnrollmentResult.rows[0].id,
+            alreadyEnrolled: true
+          };
+        }
+
         throw new DuplicateEnrollmentError(room.room_code, sanitizedEmail);
       }
+
       // Re-throw RoomFullError and other errors
       throw error;
     }

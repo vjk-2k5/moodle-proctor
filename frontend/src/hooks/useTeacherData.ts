@@ -6,10 +6,17 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { backendAPI } from '@/lib/backend';
+import {
+  backendAPI,
+  TeacherAttempt,
+  TeacherExam,
+  TeacherReport,
+  TeacherStats,
+  TeacherStudent
+} from '@/lib/backend';
 
 export function useTeacherStats(filters?: { examId?: number }) {
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<TeacherStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -41,7 +48,7 @@ export function useAttempts(query: {
   limit?: number;
   offset?: number;
 }) {
-  const [attempts, setAttempts] = useState<any[]>([]);
+  const [attempts, setAttempts] = useState<TeacherAttempt[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -74,7 +81,7 @@ export function useStudents(query: {
   examId?: number;
   limit?: number;
 }) {
-  const [students, setStudents] = useState<any[]>([]);
+  const [students, setStudents] = useState<TeacherStudent[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -109,7 +116,7 @@ export function useReports(query: {
   minViolations?: number;
   limit?: number;
 }) {
-  const [reports, setReports] = useState<any[]>([]);
+  const [reports, setReports] = useState<TeacherReport[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -138,7 +145,7 @@ export function useReports(query: {
 }
 
 export function useExams(filters?: { examId?: number }) {
-  const [exams, setExams] = useState<any[]>([]);
+  const [exams, setExams] = useState<TeacherExam[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);

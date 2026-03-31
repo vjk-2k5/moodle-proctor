@@ -1,8 +1,9 @@
 "use client";
 
-import { alerts, students } from "@mock/data";
 import { usePathname } from "next/navigation";
-import { FiActivity, FiBell, FiClock, FiUsers } from "react-icons/fi";
+import { FiActivity, FiBell, FiCheckCircle, FiUsers } from "react-icons/fi";
+
+import { useTeacherStats } from "@/hooks/useTeacherData";
 
 const pageMeta: Record<string, { title: string; subtitle: string }> = {
   "/dashboard": {
@@ -33,30 +34,29 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
 
 export const TopNavbar = () => {
   const pathname = usePathname();
-  const activeAlerts = alerts.length;
-  const flaggedStudents = students.filter((student) => student.status !== "normal").length;
   const meta = pageMeta[pathname] ?? pageMeta["/dashboard"];
+  const { stats, isLoading, error } = useTeacherStats();
 
   const summaryCards = [
     {
       label: "Live Students",
-      value: students.length.toString(),
+      value: stats?.students.active ?? 0,
       icon: <FiUsers className="h-4 w-4" />
     },
     {
       label: "Active Alerts",
-      value: activeAlerts.toString(),
+      value: stats?.violations.inLast24Hours ?? 0,
       icon: <FiBell className="h-4 w-4" />
     },
     {
       label: "Flagged Cases",
-      value: flaggedStudents.toString(),
+      value: stats?.violations.bySeverity.warning ?? 0,
       icon: <FiActivity className="h-4 w-4" />
     },
     {
-      label: "Time Remaining",
-      value: "01:23:18",
-      icon: <FiClock className="h-4 w-4" />
+      label: "Completed Attempts",
+      value: stats?.overview.completedAttempts ?? 0,
+      icon: <FiCheckCircle className="h-4 w-4" />
     }
   ];
 
@@ -72,23 +72,23 @@ export const TopNavbar = () => {
         </div>
 
         <div className="flex flex-col items-stretch gap-3 sm:flex-row xl:items-center">
-          <button className="relative flex h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900">
+          <div className="relative flex h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-slate-600">
             <FiBell className="h-5 w-5" />
-            <span className="ml-3 text-sm font-medium">Alerts</span>
-            {activeAlerts > 0 && (
-              <span className="ml-3 inline-flex min-w-6 items-center justify-center rounded-full bg-red-500 px-2 py-1 text-xs font-semibold text-white">
-                {activeAlerts}
-              </span>
-            )}
-          </button>
+            <span className="ml-3 text-sm font-medium">Live queue</span>
+            <span className="ml-3 inline-flex min-w-6 items-center justify-center rounded-full bg-red-500 px-2 py-1 text-xs font-semibold text-white">
+              {stats?.violations.inLast24Hours ?? 0}
+            </span>
+          </div>
 
           <div className="flex items-center gap-3 rounded-2xl bg-slate-900 px-4 py-3 text-white shadow-lg shadow-slate-900/10">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 text-sm font-bold">
-              AN
+              PV
             </div>
             <div>
-              <p className="text-sm font-semibold">Dr. Alice Nguyen</p>
-              <p className="text-xs text-slate-300">Session Lead</p>
+              <p className="text-sm font-semibold">Teacher Session</p>
+              <p className="text-xs text-slate-300">
+                {error ? error.message : isLoading ? "Loading dashboard..." : "Connected to backend"}
+              </p>
             </div>
           </div>
         </div>
@@ -107,8 +107,10 @@ export const TopNavbar = () => {
               </span>
             </div>
             <div className="mt-4 flex items-end justify-between gap-3">
-              <p className="text-2xl font-semibold tracking-tight text-slate-900">{card.value}</p>
-              <p className="text-xs font-medium text-slate-400">Current session</p>
+              <p className="text-2xl font-semibold tracking-tight text-slate-900">
+                {isLoading ? "…" : card.value}
+              </p>
+              <p className="text-xs font-medium text-slate-400">Live snapshot</p>
             </div>
           </div>
         ))}

@@ -15,6 +15,10 @@ import {
   MANUAL_PROCTORING_QUESTIONS,
   validateManualCredentials
 } from './manual-proctoring.compat';
+import {
+  getCompatibilityAttemptSnapshot,
+  getQuestionPaperFilename
+} from '../room/room-enrollment.service';
 
 export default fp(async (fastify: FastifyInstance) => {
   ensureManualProctoringDirectories();
@@ -67,7 +71,28 @@ export default fp(async (fastify: FastifyInstance) => {
   });
 
   fastify.get('/api/session', { onRequest: [authMiddleware] }, async (request, reply) => {
+    const roomEnrollment = (request as any).roomEnrollment as
+      | {
+          enrollmentId: number;
+          studentName: string;
+          studentEmail: string;
+          examName: string;
+          courseName: string;
+        }
+      | undefined;
     const session = getManualSessionFromRequest(request as any);
+
+    if (roomEnrollment) {
+      return reply.send({
+        success: true,
+        student: {
+          id: `room-${roomEnrollment.enrollmentId}`,
+          name: roomEnrollment.studentName,
+          email: roomEnrollment.studentEmail,
+          exam: roomEnrollment.examName
+        }
+      });
+    }
 
     if (isManualProctoringRequest(request as any) && session) {
       return reply.send({
@@ -83,7 +108,45 @@ export default fp(async (fastify: FastifyInstance) => {
     });
   });
 
-  fastify.get('/api/exam', { onRequest: [authMiddleware] }, async (_request, reply) => {
+  fastify.get('/api/exam', { onRequest: [authMiddleware] }, async (request, reply) => {
+    const roomEnrollment = (request as any).roomEnrollment as
+      | {
+          enrollmentId: number;
+          attemptId: number | null;
+          examName: string;
+          courseName: string;
+          durationMinutes: number;
+          maxWarnings: number;
+          questionPaperPath: string | null;
+          studentName: string;
+          studentEmail: string;
+          roomCode: string;
+        }
+      | undefined;
+
+    if (roomEnrollment) {
+      const attempt = await getCompatibilityAttemptSnapshot(
+        fastify.pg as any,
+        roomEnrollment.attemptId,
+        roomEnrollment.maxWarnings
+      );
+
+      return reply.send({
+        success: true,
+        timerSeconds: roomEnrollment.durationMinutes * 60,
+        questionPaper: getQuestionPaperFilename(roomEnrollment.questionPaperPath),
+        student: {
+          id: `room-${roomEnrollment.enrollmentId}`,
+          name: roomEnrollment.studentName,
+          email: roomEnrollment.studentEmail,
+          exam: roomEnrollment.examName,
+          courseName: roomEnrollment.courseName,
+          roomCode: roomEnrollment.roomCode
+        },
+        attempt
+      });
+    }
+
     const exam = getManualExamSummary();
 
     return reply.send({

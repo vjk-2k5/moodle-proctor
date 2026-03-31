@@ -82,6 +82,7 @@ export interface StudentJoinResponse {
     examName: string;
     courseName: string;
     status: string;
+    enrollmentSignature: string;
   };
   error?: string;
 }

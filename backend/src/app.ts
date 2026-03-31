@@ -82,8 +82,12 @@ export async function createApp () {
   })
 
   // CSRF protection (for state-changing operations)
-  await app.register(import('@fastify/csrf-protection'), {
-    getToken: request => request.headers['x-csrf-token'],
+  const csrfProtection = (await import('@fastify/csrf-protection')).default
+  await app.register(csrfProtection, {
+    getToken: request => {
+      const token = request.headers['x-csrf-token']
+      return Array.isArray(token) ? token[0] : token
+    },
     sessionPlugin: '@fastify/cookie'
   })
 
@@ -191,7 +195,7 @@ export async function createApp () {
   // });
 
   // CSRF token endpoint (for unauthenticated state-changing operations)
-  app.get('/api/csrf-token', async (request, reply) => {
+  app.get('/api/csrf-token', async (_request, reply) => {
     // @ts-ignore - fastify-csrf-protection decorates the reply object
     const token = reply.generateCsrf()
     return { token }

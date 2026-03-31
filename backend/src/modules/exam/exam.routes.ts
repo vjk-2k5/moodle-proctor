@@ -15,6 +15,11 @@ import {
   startManualExamAttempt,
   submitManualExamAttempt
 } from '../manual-proctoring/manual-proctoring.compat';
+import {
+  getActiveAttemptIdForUserAndExam,
+  getCompatibilityAttemptSnapshot,
+  linkAttemptToEnrollment
+} from '../room/room-enrollment.service';
 
 // ============================================================================
 // Routes Plugin
@@ -104,9 +109,12 @@ export default fp(async (fastify: FastifyInstance) => {
     handler: async (request, reply) => {
       // @ts-ignore
       const userId = request.user.id;
+      const roomEnrollment = (request as any).roomEnrollment as
+        | { enrollmentId: number; examId: number; attemptId: number | null; maxWarnings: number }
+        | undefined;
       const body = (request.body || {}) as { examId?: number };
 
-      if (isManualProctoringRequest(request)) {
+      if (!roomEnrollment && isManualProctoringRequest(request)) {
         const session = getManualSessionFromRequest(request as any);
 
         if (!session) {
@@ -124,7 +132,7 @@ export default fp(async (fastify: FastifyInstance) => {
         });
       }
 
-      let examId = body.examId;
+      let examId = body.examId || roomEnrollment?.examId;
       if (!examId) {
         return reply.code(400).send({
           success: false,
@@ -140,7 +148,51 @@ export default fp(async (fastify: FastifyInstance) => {
       const userAgent = request.headers['user-agent'];
 
       try {
+        if (roomEnrollment) {
+          const existingAttemptId =
+            roomEnrollment.attemptId ||
+            await getActiveAttemptIdForUserAndExam(fastify.pg as any, userId, examId);
+
+          if (existingAttemptId) {
+            await linkAttemptToEnrollment(
+              fastify.pg as any,
+              roomEnrollment.enrollmentId,
+              existingAttemptId
+            );
+
+            const attempt = await getCompatibilityAttemptSnapshot(
+              fastify.pg as any,
+              existingAttemptId,
+              roomEnrollment.maxWarnings
+            );
+
+            return reply.send({
+              success: true,
+              attempt
+            });
+          }
+        }
+
         const result = await examService.startExam(userId, examId, ipAddress, userAgent);
+
+        if (roomEnrollment) {
+          await linkAttemptToEnrollment(
+            fastify.pg as any,
+            roomEnrollment.enrollmentId,
+            result.data.attempt.id
+          );
+
+          const attempt = await getCompatibilityAttemptSnapshot(
+            fastify.pg as any,
+            result.data.attempt.id,
+            roomEnrollment.maxWarnings
+          );
+
+          return reply.code(201).send({
+            success: true,
+            attempt
+          });
+        }
 
         return reply.code(201).send(result);
       } catch (error) {
@@ -228,6 +280,9 @@ export default fp(async (fastify: FastifyInstance) => {
     handler: async (request, reply) => {
       // @ts-ignore
       const userId = request.user.id;
+      const roomEnrollment = (request as any).roomEnrollment as
+        | { attemptId: number | null; maxWarnings: number }
+        | undefined;
       const body = (request.body || {}) as {
         attemptId?: number;
         answers?: Record<string, unknown>;
@@ -236,7 +291,7 @@ export default fp(async (fastify: FastifyInstance) => {
       };
       const { attemptId, answers, submissionReason } = body;
 
-      if (isManualProctoringRequest(request)) {
+      if (!roomEnrollment && isManualProctoringRequest(request)) {
         const session = getManualSessionFromRequest(request as any);
 
         if (!session) {
@@ -250,7 +305,7 @@ export default fp(async (fastify: FastifyInstance) => {
         return reply.send(result);
       }
 
-      const finalAttemptId = attemptId;
+      const finalAttemptId = attemptId || roomEnrollment?.attemptId;
       if (!finalAttemptId) {
         return reply.code(404).send({
           success: false,
@@ -271,6 +326,20 @@ export default fp(async (fastify: FastifyInstance) => {
           submissionReason || body.reason || 'manual_submit',
           ipAddress
         );
+
+        if (roomEnrollment) {
+          const attempt = await getCompatibilityAttemptSnapshot(
+            fastify.pg as any,
+            result.data.attempt.id,
+            roomEnrollment.maxWarnings
+          );
+
+          return reply.send({
+            success: true,
+            attempt,
+            submitted: true
+          });
+        }
 
         return reply.send(result);
       } catch (error) {

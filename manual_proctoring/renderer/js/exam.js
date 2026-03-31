@@ -1001,7 +1001,7 @@ function renderQuestionSummary (questions = []) {
 
 async function loadQuestionSummary () {
   try {
-    const response = await fetchWithSession(`${API_BASE_URL}/api/questions`)
+    const response = await fetchWithSessionOrRoom(`${API_BASE_URL}/api/questions`)
 
     if (!response) {
       markBackendDisconnected(
@@ -1156,7 +1156,7 @@ function setBackendDisconnectedState (isDisconnected, message) {
 }
 
 async function checkBackendConnection () {
-  const response = await fetchWithSession(`${API_BASE_URL}/api/session`)
+  const response = await fetchWithSessionOrRoom(`${API_BASE_URL}/api/session`)
 
   if (!response) {
     markBackendDisconnected(
@@ -1341,7 +1341,7 @@ async function reportViolation (type, detail, severity = 'warning') {
   }
 
   try {
-    const response = await fetchWithSession(
+    const response = await fetchWithSessionOrRoom(
       `${API_BASE_URL}/api/exam/violations`,
       {
         method: 'POST',
@@ -1414,7 +1414,7 @@ function startTimer (totalSeconds) {
 }
 
 async function loadQuestionPaper (questionPaperName) {
-  const response = await fetchWithSession(
+  const response = await fetchWithSessionOrRoom(
     `${API_BASE_URL}/files/${questionPaperName}`
   )
 
@@ -1436,7 +1436,7 @@ async function loadQuestionPaper (questionPaperName) {
 }
 
 async function startExamAttempt () {
-  const response = await fetchWithSession(`${API_BASE_URL}/api/exam/start`, {
+  const response = await fetchWithSessionOrRoom(`${API_BASE_URL}/api/exam/start`, {
     method: 'POST'
   })
 

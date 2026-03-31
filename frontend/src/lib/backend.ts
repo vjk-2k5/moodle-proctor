@@ -3,7 +3,7 @@
 // Connects frontend to the backend API
 // ============================================================================
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 
 // ============================================================================
 // Types
@@ -25,6 +25,100 @@ export interface BackendAuthResponse {
     token: string;
     user: BackendUser;
   };
+}
+
+export interface TeacherStats {
+  overview: {
+    totalExams: number;
+    totalAttempts: number;
+    activeAttempts: number;
+    completedAttempts: number;
+    terminatedAttempts: number;
+  };
+  violations: {
+    total: number;
+    inLast24Hours: number;
+    byType: Record<string, number>;
+    bySeverity: {
+      info: number;
+      warning: number;
+    };
+  };
+  students: {
+    total: number;
+    active: number;
+  };
+  exams: {
+    upcoming: number;
+    ongoing: number;
+    completed: number;
+  };
+  timeRange: string;
+  generatedAt: string;
+}
+
+export interface TeacherAttempt {
+  id: number;
+  examId: number;
+  examName: string;
+  courseName: string;
+  userId: number;
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  status: 'not_started' | 'in_progress' | 'submitted' | 'terminated';
+  startedAt: string | null;
+  submittedAt: string | null;
+  submissionReason: string | null;
+  violationCount: number;
+  durationMinutes: number;
+  maxWarnings: number;
+  ipAddress: string;
+}
+
+export interface TeacherStudent {
+  id: number;
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+  profileImageUrl?: string | null;
+  lastLoginAt: string | null;
+}
+
+export interface TeacherReport {
+  attemptId: number;
+  examName: string;
+  courseName: string;
+  studentName: string;
+  studentEmail: string;
+  status: string;
+  startedAt: string | null;
+  submittedAt: string | null;
+  submissionReason: string | null;
+  violationCount: number;
+  durationMinutes: number;
+  ipAddress: string;
+  violations: {
+    total: number;
+    byType: Record<string, number>;
+  };
+}
+
+export interface TeacherExam {
+  id: number;
+  moodleCourseId: number;
+  moodleCourseModuleId: number;
+  examName: string;
+  courseName: string;
+  durationMinutes: number;
+  maxWarnings: number;
+  createdAt: string;
+  totalAttempts?: number;
+  activeAttempts?: number;
+  completedAttempts?: number;
 }
 
 export interface BackendError {
@@ -76,6 +170,7 @@ class BackendAPIClient {
     const response = await fetch(url, {
       ...options,
       headers,
+      credentials: 'include'
     });
 
     const data = await response.json().catch(() => ({}));
@@ -127,13 +222,13 @@ class BackendAPIClient {
     if (filters?.examId) params.append('examId', filters.examId.toString());
 
     const query = params.toString() ? `?${params}` : '';
-    return this.request<{ success: true; data: { exams: unknown[]; total: number } }>(
+    return this.request<{ success: true; data: { exams: TeacherExam[]; total: number } }>(
       `/api/teacher/exams${query}`
     );
   }
 
   async getExam(examId: number) {
-    return this.request<{ success: true; data: { exams: unknown[] } }>(
+    return this.request<{ success: true; data: { exams: TeacherExam[] } }>(
       `/api/teacher/exams/${examId}`
     );
   }
@@ -159,7 +254,7 @@ class BackendAPIClient {
     });
 
     const queryString = params.toString();
-    return this.request<{ success: true; data: { attempts: unknown[]; total: number } }>(
+    return this.request<{ success: true; data: { attempts: TeacherAttempt[]; total: number } }>(
       `/api/teacher/attempts${queryString ? `?${queryString}` : ''}`
     );
   }
@@ -192,7 +287,7 @@ class BackendAPIClient {
     });
 
     const queryString = params.toString();
-    return this.request<{ success: true; data: { students: unknown[]; total: number } }>(
+    return this.request<{ success: true; data: { students: TeacherStudent[]; total: number } }>(
       `/api/teacher/students${queryString ? `?${queryString}` : ''}`
     );
   }
@@ -216,7 +311,7 @@ class BackendAPIClient {
     });
 
     const queryString = params.toString();
-    return this.request<{ success: true; data: { reports: unknown[]; total: number } }>(
+    return this.request<{ success: true; data: { reports: TeacherReport[]; total: number } }>(
       `/api/teacher/reports${queryString ? `?${queryString}` : ''}`
     );
   }
@@ -235,7 +330,7 @@ class BackendAPIClient {
     });
 
     const queryString = params.toString();
-    return this.request<{ success: true; data: unknown }>(
+    return this.request<{ success: true; data: TeacherStats }>(
       `/api/teacher/stats${queryString ? `?${queryString}` : ''}`
     );
   }

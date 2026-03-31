@@ -191,10 +191,6 @@ export default fp(async (fastify: FastifyInstance) => {
       const { code } = request.params as { code: string };
       const body = request.body as StudentJoinRequest;
 
-      // Validate CSRF token for state-changing operation
-      // @ts-ignore - fastify-csrf-protection decorates the request object
-      await reply.csrfProtection(request, reply);
-
       try {
         // 1. Get room details (validates room exists)
         const room = await roomService.getRoomByCode(code);
