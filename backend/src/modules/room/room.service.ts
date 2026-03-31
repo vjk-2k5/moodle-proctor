@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { Pool } from 'pg';
-import { randomBytes, createHmac } from 'crypto';
+import { randomBytes, createHmac, createHash } from 'crypto';
 import config from '../../config';
 
 /**
@@ -18,6 +18,23 @@ function sanitizeInput(input: string): string {
     .replace(/javascript:/gi, '') // Remove javascript: protocol
     .replace(/on\w+\s*=/gi, '') // Remove event handlers like onclick=
     .trim();
+}
+
+function createSyntheticStudentUsername(email: string): string {
+  const sanitizedBase = email
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  const hashSuffix = createHash('sha256').update(email).digest('hex').slice(0, 10);
+  const base = sanitizedBase || 'student';
+
+  return `room_${base.slice(0, 180)}_${hashSuffix}`;
+}
+
+function createSyntheticMoodleUserId(): number {
+  const randomInt = randomBytes(4).readUInt32BE(0) % 2147483647;
+  return -Math.max(1, randomInt);
 }
 
 /**
@@ -394,33 +411,48 @@ export class ProctoringRoomService {
     // Sanitize inputs to prevent XSS
     const sanitizedEmail = sanitizeInput(email.toLowerCase().trim());
     const sanitizedName = sanitizeInput(name.trim());
-    const username = sanitizedEmail.split('@')[0].replace(/[^a-zA-Z0-9_-]/g, '');
-
-    // Use UPSERT (ON CONFLICT) to handle race condition atomically
-    const result = await this.pg.query(
-      `INSERT INTO users (moodle_user_id, username, email, first_name, last_name, role)
-       VALUES ($1, $2, $3, $4, $5, 'student')
-       ON CONFLICT (email) DO NOTHING
-       RETURNING id`,
-      [randomBytes(16).toString('hex'), username, sanitizedEmail, sanitizedName, '']
-    );
-
-    // If INSERT succeeded, return the new ID
-    if (result.rows.length > 0) {
-      return { id: result.rows[0].id };
-    }
-
-    // Otherwise, user already exists - fetch it
-    const existingResult = await this.pg.query(
+    const existingUserResult = await this.pg.query<{ id: number }>(
       'SELECT id FROM users WHERE email = $1',
       [sanitizedEmail]
     );
 
-    if (existingResult.rows.length === 0) {
-      throw new Error(`Failed to create or retrieve user for email: ${sanitizedEmail}`);
+    if (existingUserResult.rows.length > 0) {
+      return { id: existingUserResult.rows[0].id };
     }
 
-    return { id: existingResult.rows[0].id };
+    const username = createSyntheticStudentUsername(sanitizedEmail);
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const result = await this.pg.query<{ id: number }>(
+          `INSERT INTO users (moodle_user_id, username, email, first_name, last_name, role)
+           VALUES ($1, $2, $3, $4, $5, 'student')
+           RETURNING id`,
+          [createSyntheticMoodleUserId(), username, sanitizedEmail, sanitizedName, '']
+        );
+
+        if (result.rows.length > 0) {
+          return { id: result.rows[0].id };
+        }
+      } catch (error: any) {
+        if (error.code === '23505') {
+          const raceConditionResult = await this.pg.query<{ id: number }>(
+            'SELECT id FROM users WHERE email = $1',
+            [sanitizedEmail]
+          );
+
+          if (raceConditionResult.rows.length > 0) {
+            return { id: raceConditionResult.rows[0].id };
+          }
+
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    throw new Error(`Failed to create or retrieve user for email: ${sanitizedEmail}`);
   }
 
   /**

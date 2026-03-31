@@ -14,7 +14,6 @@ import {
   CapacityExceededError,
   InvalidStateTransitionError,
   NotRoomOwnerError,
-  DuplicateEnrollmentError,
   RoomFullError
 } from '../room.service';
 
@@ -479,6 +478,7 @@ describe('ProctoringRoomService', () => {
       const mockFn = jest.fn() as any;
       mockPool.query = mockFn;
       mockFn.mockResolvedValueOnce({ rows: [mockRoom] }); // Get room
+      mockFn.mockResolvedValueOnce({ rows: [] }); // Existing enrollment not found
       mockFn.mockResolvedValueOnce({ rows: [{ id: 777 }] }); // INSERT succeeds
 
       const result = await roomService.enrollStudent({
@@ -514,8 +514,9 @@ describe('ProctoringRoomService', () => {
       const mockFn = jest.fn() as any;
       mockPool.query = mockFn;
       mockFn.mockResolvedValueOnce({ rows: [mockRoom] }); // Get room
-      mockFn.mockResolvedValueOnce({ rows: [{ count: '10' }] }); // Current count
+      mockFn.mockResolvedValueOnce({ rows: [] }); // Existing enrollment not found
       mockFn.mockResolvedValueOnce({ rows: [] }); // INSERT fails (capacity check)
+      mockFn.mockResolvedValueOnce({ rows: [{ count: '10' }] }); // Current count
 
       await expect(roomService.enrollStudent({
         roomId: 1,
@@ -525,7 +526,7 @@ describe('ProctoringRoomService', () => {
       })).rejects.toThrow(RoomFullError);
     });
 
-    it('should throw DuplicateEnrollmentError on duplicate key', async () => {
+    it('should return existing enrollment on duplicate key race condition', async () => {
       const mockRoom = {
         id: 1,
         room_code: 'DUP12345',
@@ -535,15 +536,22 @@ describe('ProctoringRoomService', () => {
       const mockFn = jest.fn() as any;
       mockPool.query = mockFn;
       mockFn.mockResolvedValueOnce({ rows: [mockRoom] }); // Get room
+      mockFn.mockResolvedValueOnce({ rows: [] }); // Existing enrollment not found
       // INSERT throws duplicate key error
       mockFn.mockRejectedValueOnce({ code: '23505', detail: 'Key (email) already exists' });
+      mockFn.mockResolvedValueOnce({ rows: [{ id: 222 }] }); // Enrollment now exists
 
-      await expect(roomService.enrollStudent({
+      const result = await roomService.enrollStudent({
         roomId: 1,
         userId: 100,
         studentName: 'Duplicate',
         studentEmail: 'duplicate@example.com'
-      })).rejects.toThrow(DuplicateEnrollmentError);
+      });
+
+      expect(result).toEqual({
+        id: 222,
+        alreadyEnrolled: true
+      });
     });
 
     it('should sanitize student name and email before enrollment', async () => {
@@ -556,6 +564,7 @@ describe('ProctoringRoomService', () => {
       const mockFn = jest.fn() as any;
       mockPool.query = mockFn;
       mockFn.mockResolvedValueOnce({ rows: [mockRoom] });
+      mockFn.mockResolvedValueOnce({ rows: [] });
       mockFn.mockResolvedValueOnce({ rows: [{ id: 888 }] });
 
       await roomService.enrollStudent({
@@ -566,7 +575,7 @@ describe('ProctoringRoomService', () => {
       });
 
       // Verify sanitized data was passed to INSERT
-      const insertCall = mockFn.mock.calls[1];
+      const insertCall = mockFn.mock.calls[2];
       expect(insertCall[1][1]).not.toContain('<script>');
       expect(insertCall[1][2]).not.toContain('<script>');
     });
