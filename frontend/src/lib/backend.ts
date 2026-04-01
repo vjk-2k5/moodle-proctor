@@ -125,9 +125,19 @@ export interface ProctoringRoomSummary {
   id: number;
   roomCode: string;
   examName: string;
+  courseName: string;
   studentCount: number;
   durationMinutes: number;
   createdAt: string;
+  activatedAt: string | null;
+}
+
+export interface CreatedRoomDetails {
+  roomId: number;
+  roomCode: string;
+  inviteLink: string;
+  examName: string;
+  courseName: string;
 }
 
 export interface BackendError {
@@ -347,6 +357,31 @@ class BackendAPIClient {
   async getActiveRooms() {
     return this.request<{ success: true; data: ProctoringRoomSummary[] }>(
       '/api/room/active'
+    );
+  }
+
+  async createRoom(examId: number) {
+    return this.request<{ success: true; data: CreatedRoomDetails }>('/api/room/create', {
+      method: 'POST',
+      body: JSON.stringify({ examId }),
+    });
+  }
+
+  async activateRoom(roomId: number) {
+    return this.request<{ success: true; data: { roomId: number; status: string } }>(
+      `/api/room/${roomId}/activate`,
+      {
+        method: 'POST',
+      }
+    );
+  }
+
+  async closeRoom(roomId: number) {
+    return this.request<{ success: true; data: { roomId: number; status: string } }>(
+      `/api/room/${roomId}/close`,
+      {
+        method: 'POST',
+      }
     );
   }
 

@@ -179,9 +179,11 @@ export interface ActiveRoomSummary {
   id: number;
   room_code: string;
   exam_name: string;
+  course_name: string;
   student_count: number;
   duration_minutes: number;
   created_at: Date;
+  activated_at: Date | null;
 }
 
 // ============================================================================
@@ -324,8 +326,10 @@ export class ProctoringRoomService {
          pr.id,
          pr.room_code,
          e.exam_name,
+         e.course_name,
          e.duration_minutes,
          pr.created_at,
+         pr.activated_at,
          COUNT(DISTINCT ps.attempt_id) as student_count
        FROM proctoring_rooms pr
        JOIN exams e ON pr.exam_id = e.id
@@ -334,7 +338,7 @@ export class ProctoringRoomService {
        )
        WHERE pr.teacher_id = $1
        AND pr.status = 'activated'
-       GROUP BY pr.id, e.exam_name, e.duration_minutes, pr.created_at
+       GROUP BY pr.id, e.exam_name, e.course_name, e.duration_minutes, pr.created_at, pr.activated_at
        ORDER BY pr.created_at DESC`,
       [teacherId]
     );

@@ -1,7 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { FiClock, FiLoader, FiUsers, FiX } from "react-icons/fi";
+import { useEffect, useMemo, useState } from "react";
+import {
+  FiCalendar,
+  FiClock,
+  FiLoader,
+  FiRefreshCw,
+  FiSearch,
+  FiUsers,
+  FiVideo,
+  FiX
+} from "react-icons/fi";
+
 import { useActiveRooms } from "@/hooks/useTeacherData";
 import type { ProctoringRoomSummary } from "@/lib/backend";
 
@@ -12,6 +22,19 @@ interface Props {
   onRoomSelect: (room: ProctoringRoomSummary) => void;
 }
 
+function formatRoomTime(value: string | null) {
+  if (!value) {
+    return "Waiting for activation";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
 export const RoomSelector = ({
   isOpen,
   onClose,
@@ -19,7 +42,22 @@ export const RoomSelector = ({
   onRoomSelect
 }: Props) => {
   const [isSwitching, setIsSwitching] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
   const { rooms, isLoading, error, refetch } = useActiveRooms();
+
+  const filteredRooms = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+
+    if (!query) {
+      return rooms;
+    }
+
+    return rooms.filter((room) =>
+      [room.examName, room.courseName, room.roomCode].some((value) =>
+        value.toLowerCase().includes(query)
+      )
+    );
+  }, [rooms, searchTerm]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -43,6 +81,8 @@ export const RoomSelector = ({
   useEffect(() => {
     if (isOpen) {
       refetch();
+    } else {
+      setSearchTerm("");
     }
   }, [isOpen, refetch]);
 
@@ -54,11 +94,11 @@ export const RoomSelector = ({
 
     setIsSwitching(true);
 
-    setTimeout(() => {
+    window.setTimeout(() => {
       onRoomSelect(room);
       setIsSwitching(false);
       onClose();
-    }, 450);
+    }, 220);
   };
 
   if (!isOpen) return null;
@@ -72,15 +112,15 @@ export const RoomSelector = ({
         }
       }}
     >
-      <div className="modal-shell max-h-[88vh] max-w-3xl overflow-hidden rounded-[30px]">
+      <div className="modal-shell max-h-[88vh] max-w-4xl overflow-hidden rounded-[30px]">
         <div className="flex items-start justify-between gap-4 border-b border-slate-200/80 px-6 py-5">
           <div>
             <span className="eyebrow-pill">Room switcher</span>
             <h2 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950">
-              Move to another active room
+              Move between live rooms quickly
             </h2>
-            <p className="section-copy mt-2">
-              Pick the room you want on the camera wall and the monitoring desk will switch over.
+            <p className="section-copy mt-2 max-w-2xl">
+              Search by room code, exam, or course and switch the monitoring wall without leaving this workspace.
             </p>
           </div>
           <button
@@ -93,7 +133,33 @@ export const RoomSelector = ({
           </button>
         </div>
 
-        <div className="max-h-[65vh] overflow-y-auto px-6 py-5 scroll-thin">
+        <div className="max-h-[68vh] overflow-y-auto px-6 py-5 scroll-thin">
+          <div className="flex flex-col gap-3 pb-4 sm:flex-row sm:items-center sm:justify-between">
+            <label className="relative block flex-1">
+              <FiSearch className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Search active rooms"
+                className="input-field pl-11"
+              />
+            </label>
+
+            <div className="flex items-center gap-2">
+              <span className="info-chip">{filteredRooms.length} visible rooms</span>
+              <button
+                type="button"
+                onClick={() => refetch()}
+                className="btn-secondary px-3 py-3"
+                disabled={isLoading}
+              >
+                <FiRefreshCw className={["h-4 w-4", isLoading ? "animate-spin" : ""].join(" ")} />
+                Refresh
+              </button>
+            </div>
+          </div>
+
           {isLoading ? (
             <div className="empty-state flex items-center justify-center gap-3">
               <FiLoader className="h-5 w-5 animate-spin text-emerald-700" />
@@ -105,9 +171,11 @@ export const RoomSelector = ({
             </div>
           ) : rooms.length === 0 ? (
             <div className="empty-state">No active rooms found yet. Create a room to get started.</div>
+          ) : filteredRooms.length === 0 ? (
+            <div className="empty-state">No active rooms match that search yet.</div>
           ) : (
             <div className="space-y-3">
-              {rooms.map((room) => {
+              {filteredRooms.map((room) => {
                 const isCurrentRoom = room.roomCode === currentRoomCode;
 
                 return (
@@ -131,8 +199,21 @@ export const RoomSelector = ({
                             <span className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white">
                               Current room
                             </span>
-                          ) : null}
+                          ) : (
+                            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-800">
+                              Active
+                            </span>
+                          )}
                         </div>
+
+                        <p
+                          className={[
+                            "mt-1 text-sm",
+                            isCurrentRoom ? "text-slate-300" : "text-slate-500"
+                          ].join(" ")}
+                        >
+                          {room.courseName}
+                        </p>
 
                         <div
                           className={[
@@ -148,15 +229,27 @@ export const RoomSelector = ({
                             <FiClock className="h-4 w-4" />
                             {room.durationMinutes} min
                           </span>
+                          <span className="inline-flex items-center gap-1.5">
+                            <FiCalendar className="h-4 w-4" />
+                            Live since {formatRoomTime(room.activatedAt ?? room.createdAt)}
+                          </span>
                           <span className="font-mono uppercase tracking-[0.16em]">
                             {room.roomCode}
                           </span>
                         </div>
                       </div>
 
-                      {isSwitching && !isCurrentRoom ? (
-                        <FiLoader className="mt-1 h-5 w-5 animate-spin text-emerald-600" />
-                      ) : null}
+                      <div className="flex items-center gap-3">
+                        {!isCurrentRoom ? (
+                          <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">
+                            <FiVideo className="h-3.5 w-3.5" />
+                            Switch
+                          </span>
+                        ) : null}
+                        {isSwitching && !isCurrentRoom ? (
+                          <FiLoader className="h-5 w-5 animate-spin text-emerald-600" />
+                        ) : null}
+                      </div>
                     </div>
                   </button>
                 );

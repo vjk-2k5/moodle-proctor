@@ -57,9 +57,11 @@ export interface ActiveRoomsResponse {
     id: number;
     roomCode: string;
     examName: string;
+    courseName: string;
     studentCount: number;
     durationMinutes: number;
     createdAt: string;
+    activatedAt: string | null;
   }>;
   error?: string;
 }

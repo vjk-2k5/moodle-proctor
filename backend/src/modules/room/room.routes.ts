@@ -294,9 +294,11 @@ export default fp(async (fastify: FastifyInstance) => {
             id: room.id,
             roomCode: room.room_code,
             examName: room.exam_name,
+            courseName: room.course_name,
             studentCount: room.student_count,
             durationMinutes: room.duration_minutes,
-            createdAt: room.created_at.toISOString()
+            createdAt: room.created_at.toISOString(),
+            activatedAt: room.activated_at?.toISOString() ?? null
           }))
         };
       } catch (error) {
