@@ -119,11 +119,38 @@ async function fetchWithSessionOrRoom(url, options = {}) {
   }
 }
 
+async function uploadLiveSnapshot(imageBase64) {
+  const roomData = await getRoomEnrollment();
+
+  if (!roomData?.roomCode || !imageBase64) {
+    return;
+  }
+
+  try {
+    await fetchWithSessionOrRoom(
+      `${API_BASE_URL}/api/live-monitoring/rooms/${encodeURIComponent(roomData.roomCode)}/frame`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          imageBase64,
+          mimeType: 'image/jpeg'
+        })
+      }
+    );
+  } catch (error) {
+    console.warn('[Live Monitoring] Failed to upload snapshot:', error);
+  }
+}
+
 const EXAM_CONFIG = {
   maxWarnings: 15,
   networkAppWarningCooldownMs: 5000,
   reconnectCheckIntervalMs: 5000,
   proctorFrameIntervalMs: 125,
+  liveSnapshotUploadIntervalMs: 1000,
   aiWarningDefaultDwellMs: 0,
   aiWarningDwellMs: {
     'No face detected': 500,
@@ -1994,6 +2021,7 @@ function startFrameCaptureWithOverlay (video) {
   let reconnectTimeoutId = null
   let hasConnectedOnce = false
   let stopped = false
+  let lastSnapshotUploadAt = 0
 
   setAIProctoringStatus({
     state: 'starting',
@@ -2120,6 +2148,14 @@ function startFrameCaptureWithOverlay (video) {
     ctx.drawImage(video, 0, 0)
     const frame = canvas.toDataURL('image/jpeg', 0.6).split(',')[1]
     ws.send(JSON.stringify({ frame }))
+
+    const now = Date.now()
+    if (now - lastSnapshotUploadAt >= EXAM_CONFIG.liveSnapshotUploadIntervalMs) {
+      lastSnapshotUploadAt = now
+      uploadLiveSnapshot(frame).catch(error => {
+        console.warn('[Live Monitoring] Snapshot upload failed:', error)
+      })
+    }
   }
 
   connect()

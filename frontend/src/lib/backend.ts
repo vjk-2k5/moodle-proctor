@@ -3,7 +3,7 @@
 // Connects frontend to the backend API
 // ============================================================================
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+import { BACKEND_URL } from './config';
 
 // ============================================================================
 // Types
@@ -119,6 +119,15 @@ export interface TeacherExam {
   totalAttempts?: number;
   activeAttempts?: number;
   completedAttempts?: number;
+}
+
+export interface ProctoringRoomSummary {
+  id: number;
+  roomCode: string;
+  examName: string;
+  studentCount: number;
+  durationMinutes: number;
+  createdAt: string;
 }
 
 export interface BackendError {
@@ -332,6 +341,12 @@ class BackendAPIClient {
     const queryString = params.toString();
     return this.request<{ success: true; data: TeacherStats }>(
       `/api/teacher/stats${queryString ? `?${queryString}` : ''}`
+    );
+  }
+
+  async getActiveRooms() {
+    return this.request<{ success: true; data: ProctoringRoomSummary[] }>(
+      '/api/room/active'
     );
   }
 

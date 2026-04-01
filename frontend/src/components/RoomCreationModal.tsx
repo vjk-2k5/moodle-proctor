@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { FiCheck, FiCopy, FiLoader, FiPlus, FiX } from "react-icons/fi";
 
 import type { TeacherExam } from "@/lib/backend";
+import { BACKEND_URL } from "@/lib/config";
 
 interface Props {
   isOpen: boolean;
@@ -16,7 +17,7 @@ export const RoomCreationModal = ({
   isOpen,
   onClose,
   onRoomCreated,
-  apiUrl = "http://localhost:5000"
+  apiUrl = BACKEND_URL
 }: Props) => {
   const [exams, setExams] = useState<TeacherExam[]>([]);
   const [selectedExamId, setSelectedExamId] = useState<number | null>(null);

@@ -5,9 +5,10 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   backendAPI,
+  ProctoringRoomSummary,
   TeacherAttempt,
   TeacherExam,
   TeacherReport,
@@ -171,4 +172,31 @@ export function useExams(filters?: { examId?: number }) {
   }, [filters?.examId]);
 
   return { exams, total, isLoading, error, refetch: fetchExams };
+}
+
+export function useActiveRooms() {
+  const [rooms, setRooms] = useState<ProctoringRoomSummary[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchRooms = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await backendAPI.getActiveRooms();
+      if (response.success) {
+        setRooms(response.data);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to fetch active rooms'));
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchRooms();
+  }, [fetchRooms]);
+
+  return { rooms, isLoading, error, refetch: fetchRooms };
 }

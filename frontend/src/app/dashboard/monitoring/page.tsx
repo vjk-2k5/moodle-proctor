@@ -1,27 +1,62 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { FiActivity, FiPlus, FiShield, FiUsers, FiVideo } from "react-icons/fi";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { FiActivity, FiLoader, FiPlus, FiShield, FiUsers, FiVideo } from "react-icons/fi";
 
 import { AlertPanel } from "@components/AlertPanel";
 import { RoomCreationModal } from "@components/RoomCreationModal";
-import { RoomSelector, type ProctoringRoomSummary } from "@components/RoomSelector";
 import { StudentsGrid } from "@components/StudentsGrid";
-import { useAttempts } from "@/hooks/useTeacherData";
+import { RoomSelector } from "@components/RoomSelector";
+import { useActiveRooms, useAttempts } from "@/hooks/useTeacherData";
+import type { ProctoringRoomSummary } from "@/lib/backend";
+
+const LAST_ROOM_STORAGE_KEY = "teacher-monitoring:last-room-code";
 
 export default function LiveMonitoringPage() {
   const { attempts } = useAttempts({
     status: "in_progress",
     limit: 25
   });
+  const { rooms, isLoading: roomsLoading } = useActiveRooms();
 
   const [currentRoomCode, setCurrentRoomCode] = useState<string | undefined>(undefined);
-  const [currentRoomLabel, setCurrentRoomLabel] = useState<string>("Default live monitoring room");
+  const [currentRoomLabel, setCurrentRoomLabel] = useState<string>("No room selected");
   const [isRoomSelectorOpen, setIsRoomSelectorOpen] = useState(false);
   const [isRoomCreationOpen, setIsRoomCreationOpen] = useState(false);
+  const hasHydratedRoom = useRef(false);
 
   const suspiciousCount = attempts.filter((attempt) => attempt.violationCount >= 5).length;
-  const activeRoomCode = currentRoomCode || "exam-monitoring-room";
+  const activeRoomCode = currentRoomCode;
+
+  useEffect(() => {
+    if (typeof window === "undefined" || hasHydratedRoom.current || roomsLoading) {
+      return;
+    }
+
+    hasHydratedRoom.current = true;
+
+    const storedRoomCode = window.localStorage.getItem(LAST_ROOM_STORAGE_KEY);
+    const matchedRoom =
+      rooms.find((room) => room.roomCode === storedRoomCode) ||
+      rooms[0];
+
+    if (matchedRoom) {
+      setCurrentRoomCode(matchedRoom.roomCode);
+      setCurrentRoomLabel(matchedRoom.examName);
+    }
+  }, [rooms, roomsLoading]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (currentRoomCode) {
+      window.localStorage.setItem(LAST_ROOM_STORAGE_KEY, currentRoomCode);
+    } else {
+      window.localStorage.removeItem(LAST_ROOM_STORAGE_KEY);
+    }
+  }, [currentRoomCode]);
 
   const workspaceStats = [
     {
@@ -91,15 +126,32 @@ export default function LiveMonitoringPage() {
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <span className="info-chip font-mono uppercase tracking-[0.16em]">
-                  Room {activeRoomCode}
-                </span>
+                {activeRoomCode ? (
+                  <span className="info-chip font-mono uppercase tracking-[0.16em]">
+                    Room {activeRoomCode}
+                  </span>
+                ) : null}
                 <span className="info-chip">{currentRoomLabel}</span>
                 <span className="info-chip">
                   <FiShield className="h-3.5 w-3.5" />
                   Live proctoring session
                 </span>
               </div>
+
+              {!activeRoomCode && (
+                <div className="surface-subtle flex items-center gap-3 rounded-[24px] px-4 py-4 text-slate-700">
+                  {roomsLoading ? (
+                    <FiLoader className="h-4 w-4 animate-spin text-emerald-700" />
+                  ) : (
+                    <FiVideo className="h-4 w-4 text-emerald-700" />
+                  )}
+                  <p className="text-sm font-medium">
+                    {roomsLoading
+                      ? "Checking for active rooms and restoring your last monitoring session."
+                      : "No active room is selected yet. Create one or switch to an active room to start monitoring."}
+                  </p>
+                </div>
+              )}
 
               <div className="grid gap-3 sm:grid-cols-3">
                 {workspaceStats.map((stat) => (

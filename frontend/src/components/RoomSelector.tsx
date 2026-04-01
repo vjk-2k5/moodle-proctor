@@ -2,35 +2,24 @@
 
 import { useEffect, useState } from "react";
 import { FiClock, FiLoader, FiUsers, FiX } from "react-icons/fi";
-
-export interface ProctoringRoomSummary {
-  id: number;
-  roomCode: string;
-  examName: string;
-  studentCount: number;
-  durationMinutes: number;
-  createdAt: string;
-}
+import { useActiveRooms } from "@/hooks/useTeacherData";
+import type { ProctoringRoomSummary } from "@/lib/backend";
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   currentRoomCode?: string;
   onRoomSelect: (room: ProctoringRoomSummary) => void;
-  apiUrl?: string;
 }
 
 export const RoomSelector = ({
   isOpen,
   onClose,
   currentRoomCode,
-  onRoomSelect,
-  apiUrl = "http://localhost:5000"
+  onRoomSelect
 }: Props) => {
-  const [rooms, setRooms] = useState<ProctoringRoomSummary[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [isSwitching, setIsSwitching] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { rooms, isLoading, error, refetch } = useActiveRooms();
 
   useEffect(() => {
     if (!isOpen) return;
@@ -52,33 +41,10 @@ export const RoomSelector = ({
   }, [isOpen, isSwitching, onClose]);
 
   useEffect(() => {
-    if (!isOpen) return;
-
-    const fetchRooms = async () => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const response = await fetch(`${apiUrl}/api/room/active`, {
-          credentials: "include"
-        });
-        const result = await response.json().catch(() => ({}));
-
-        if (!response.ok || !result.success) {
-          throw new Error(result.error || "Failed to fetch rooms");
-        }
-
-        setRooms(result.data);
-      } catch (err) {
-        console.error("[RoomSelector] Error fetching rooms:", err);
-        setError(err instanceof Error ? err.message : "Failed to load rooms");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchRooms();
-  }, [apiUrl, isOpen]);
+    if (isOpen) {
+      refetch();
+    }
+  }, [isOpen, refetch]);
 
   const handleRoomSelect = (room: ProctoringRoomSummary) => {
     if (room.roomCode === currentRoomCode) {
@@ -135,7 +101,7 @@ export const RoomSelector = ({
             </div>
           ) : error ? (
             <div className="rounded-[24px] border border-red-200 bg-red-50 px-4 py-4 text-sm font-medium text-red-700">
-              {error}
+              {error.message}
             </div>
           ) : rooms.length === 0 ? (
             <div className="empty-state">No active rooms found yet. Create a room to get started.</div>
