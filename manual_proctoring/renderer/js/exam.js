@@ -23,6 +23,13 @@ let aiProctoringStatus = {
 let liveAiWarnings = []
 let liveAiAdvisories = []
 let pinnedExamStatus = null
+let webRTCBroadcastState = {
+  status: 'idle',
+  detail: 'WebRTC broadcast is idle.',
+  isConnected: false,
+  isProducing: false,
+  error: null
+}
 
 // ============================================================================
 // Room-Based Enrollment Support
@@ -119,10 +126,28 @@ async function fetchWithSessionOrRoom(url, options = {}) {
   }
 }
 
+function getRoomEnrollmentHeaders(roomData) {
+  if (!roomData) {
+    return null
+  }
+
+  return {
+    'X-Room-Enrollment-Id': roomData.enrollmentId.toString(),
+    'X-Room-Id': roomData.roomId.toString(),
+    'X-Room-Code': roomData.roomCode,
+    'X-Student-Email': roomData.studentEmail,
+    'X-Room-Enrollment-Signature': roomData.enrollmentSignature || ''
+  }
+}
+
 async function uploadLiveSnapshot(imageBase64) {
   const roomData = await getRoomEnrollment();
 
   if (!roomData?.roomCode || !imageBase64) {
+    return;
+  }
+
+  if (webRTCBroadcastState.isConnected && webRTCBroadcastState.isProducing) {
     return;
   }
 
@@ -142,6 +167,30 @@ async function uploadLiveSnapshot(imageBase64) {
     );
   } catch (error) {
     console.warn('[Live Monitoring] Failed to upload snapshot:', error);
+  }
+}
+
+async function startTeacherWebRTCBroadcast() {
+  const roomData = await getRoomEnrollment()
+
+  if (!roomData?.roomCode || !window.electronAPI?.startWebRTCBroadcast) {
+    return
+  }
+
+  const studentName = roomData.studentName || 'Student'
+  const peerId = `room-student-${roomData.roomId}-${roomData.enrollmentId}`
+
+  try {
+    await window.electronAPI.startWebRTCBroadcast({
+      roomId: roomData.roomCode,
+      peerId,
+      studentName,
+      backendUrl: API_BASE_URL,
+      requestHeaders: getRoomEnrollmentHeaders(roomData),
+      videoElementId: 'video'
+    })
+  } catch (error) {
+    console.warn('[Live Monitoring] WebRTC broadcast failed to start:', error)
   }
 }
 
@@ -1264,6 +1313,12 @@ function releaseExamResources () {
     frameCaptureController = null
   }
 
+  if (window.electronAPI?.stopWebRTCBroadcast) {
+    window.electronAPI.stopWebRTCBroadcast().catch(error => {
+      console.warn('Failed to stop WebRTC broadcast:', error)
+    })
+  }
+
   if (video?.srcObject) {
     video.srcObject.getTracks().forEach(track => track.stop())
     video.srcObject = null
@@ -1737,6 +1792,10 @@ async function startCamera () {
     })
 
     video.srcObject = stream
+    await video.play().catch(() => {})
+    startTeacherWebRTCBroadcast().catch(error => {
+      console.warn('[Live Monitoring] WebRTC broadcast failed to initialize:', error)
+    })
     setExamStatus('Your camera is connected. You are ready to begin.', 'info')
     frameCaptureController = startFrameCaptureWithOverlay(video)
     return true
@@ -2412,6 +2471,12 @@ function registerExamGuards () {
   if (window.electronAPI?.onAIProctoringStatus) {
     window.electronAPI.onAIProctoringStatus(status => {
       setAIProctoringStatus(status)
+    })
+  }
+
+  if (window.electronAPI?.onWebRTCBroadcastState) {
+    window.electronAPI.onWebRTCBroadcastState(status => {
+      webRTCBroadcastState = status || webRTCBroadcastState
     })
   }
 }

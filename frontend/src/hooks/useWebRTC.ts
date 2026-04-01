@@ -59,7 +59,7 @@ interface CreateConsumerResponse {
   rtpParameters: Record<string, unknown>;
 }
 
-const CONSUMER_POLL_INTERVAL_MS = 3000;
+const CONSUMER_POLL_INTERVAL_MS = 1000;
 
 export function useWebRTC(config: WebRTCConfig) {
   const [peers, setPeers] = useState<Map<string, WebRTCPeerInfo>>(new Map());
