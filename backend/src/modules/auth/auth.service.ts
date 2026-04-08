@@ -48,23 +48,45 @@ class AuthService {
       logger.info(`Login attempt for user: ${username}`);
       const moodleToken = await moodleService.authenticate(username, password);
 
-      // Step 2: Validate token and get Moodle user info
-      const siteInfo = await moodleService.validateToken(moodleToken);
+      let user: User;
 
-      // Step 3: Sync user to database
-      const { userId, role } = await moodleService.syncUser(moodleToken, siteInfo);
+      try {
+        // Step 2: Validate token and get Moodle user info
+        const siteInfo = await moodleService.validateToken(moodleToken);
 
-      // Step 4: Check if user exists in database, create if not
-      const user = await this.getOrCreateUser(fastify, {
-        id: userId,
-        moodleUserId: siteInfo.userid,
-        username: siteInfo.username,
-        email: moodleService.getResolvedEmail(siteInfo),
-        firstName: siteInfo.firstname,
-        lastName: siteInfo.lastname,
-        role: role === 'teacher' ? UserRole.TEACHER : UserRole.STUDENT,
-        profileImageUrl: siteInfo.userpictureurl,
-      });
+        // Step 3: Sync user to database
+        const { userId, role } = await moodleService.syncUser(moodleToken, siteInfo);
+
+        // Step 4: Check if user exists in database, create if not
+        user = await this.getOrCreateUser(fastify, {
+          id: userId,
+          moodleUserId: siteInfo.userid,
+          username: siteInfo.username,
+          email: moodleService.getResolvedEmail(siteInfo),
+          firstName: siteInfo.firstname,
+          lastName: siteInfo.lastname,
+          role: role === 'teacher' ? UserRole.TEACHER : UserRole.STUDENT,
+          profileImageUrl: siteInfo.userpictureurl,
+        });
+      } catch (error) {
+        if (!(error instanceof MoodleError) || !this.isRecoverableProfileLookupError(error)) {
+          throw error;
+        }
+
+        logger.warn(
+          `Moodle accepted credentials for ${username}, but profile lookup was blocked. Falling back to local user lookup.`,
+          { error: error.message }
+        );
+
+        const existingUser = await this.getUserByUsername(fastify, username);
+        if (!existingUser) {
+          throw new UnauthorizedError(
+            'Moodle login succeeded, but no local user record exists for this username'
+          );
+        }
+
+        user = existingUser;
+      }
 
       // Step 5: Generate JWT token
       const token = jwtService.generateToken(user, moodleToken);
@@ -198,6 +220,38 @@ class AuthService {
   }
 
   /**
+   * Get user from database by username
+   */
+  private async getUserByUsername(
+    fastify: FastifyInstance,
+    username: string
+  ): Promise<User | null> {
+    const result = await fastify.pg.query(
+      `SELECT
+        id,
+        moodle_user_id as "moodleUserId",
+        username,
+        email,
+        first_name as "firstName",
+        last_name as "lastName",
+        role,
+        profile_image_url as "profileImageUrl",
+        created_at as "createdAt",
+        updated_at as "updatedAt",
+        last_login_at as "lastLoginAt"
+      FROM users
+      WHERE LOWER(username) = LOWER($1)`,
+      [username]
+    );
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return result.rows[0] as User;
+  }
+
+  /**
    * Get or create user in database
    */
   private async getOrCreateUser(
@@ -278,6 +332,15 @@ class AuthService {
     await fastify.pg.query(
       'UPDATE users SET last_login_at = NOW() WHERE id = $1',
       [userId]
+    );
+  }
+
+  private isRecoverableProfileLookupError(error: MoodleError): boolean {
+    const normalizedMessage = error.message.toLowerCase();
+
+    return (
+      normalizedMessage.includes('access control exception') ||
+      normalizedMessage.includes('accessexception')
     );
   }
 }
