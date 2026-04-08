@@ -11,6 +11,7 @@ export interface VideoStreamProps {
   connectionState: 'connecting' | 'connected' | 'disconnected';
   videoEnabled: boolean;
   audioEnabled: boolean;
+  statusLabel?: 'not_started' | 'in_progress' | 'submitted' | 'terminated';
 }
 
 export function VideoStream({
@@ -21,6 +22,7 @@ export function VideoStream({
   connectionState,
   videoEnabled,
   audioEnabled,
+  statusLabel,
 }: VideoStreamProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -39,6 +41,13 @@ export function VideoStream({
     disconnected: 'Disconnected',
   }[connectionState];
 
+  const statusText =
+    statusLabel === 'submitted'
+      ? 'Submitted'
+      : statusLabel === 'terminated'
+      ? 'Ended'
+      : connectionLabel;
+
   return (
     <article className="relative h-full bg-slate-950">
       <video
@@ -50,7 +59,7 @@ export function VideoStream({
       />
 
       <div className="absolute left-3 top-3 inline-flex items-center rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white">
-        {connectionLabel}
+        {statusText}
       </div>
 
       <div className="absolute right-3 top-3 inline-flex items-center rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white">

@@ -487,6 +487,7 @@ export default function LiveMonitoringPage() {
         <div className="space-y-5">
           <StudentsGrid
             roomId={currentRoom?.roomCode}
+            roomStudents={roomStudents}
             onStudentSelect={setSelectedStudent}
             selectedStudentName={selectedStudent?.studentName ?? null}
           />
