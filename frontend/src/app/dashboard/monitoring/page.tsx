@@ -133,8 +133,6 @@ export default function LiveMonitoringPage() {
       return;
     }
 
-    setIsLoadingRoomStudents(true);
-
     try {
       const response = await backendAPI.getRoomStudents(currentRoom.id);
       if (response.success) {
@@ -151,9 +149,11 @@ export default function LiveMonitoringPage() {
   useEffect(() => {
     if (!currentRoom) {
       setRoomStudents([]);
+      setIsLoadingRoomStudents(false);
       return;
     }
 
+    setIsLoadingRoomStudents(true);
     void fetchRoomStudents();
     const timerId = window.setInterval(() => {
       void fetchRoomStudents();
@@ -483,7 +483,7 @@ export default function LiveMonitoringPage() {
         )}
       </article>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_360px]">
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.45fr)_360px]">
         <StudentsGrid
           roomId={currentRoom?.roomCode}
           onStudentSelect={setSelectedStudent}

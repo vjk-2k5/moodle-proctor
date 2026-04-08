@@ -198,7 +198,7 @@ export const StudentsGrid = ({
   const totalFeeds = hasWebRtcFeeds ? videoStreams.length : snapshotFeeds.length;
 
   return (
-    <section className="rounded-[20px] border border-slate-200 bg-white">
+    <section className="self-start rounded-[20px] border border-slate-200 bg-white">
       <div className="border-b border-slate-200 px-5 py-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
