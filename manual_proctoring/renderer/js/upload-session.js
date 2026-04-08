@@ -2,6 +2,34 @@ let uploadSession = null
 let countdownTimerId = null
 let refreshTimerId = null
 
+function getLocalUploadSession () {
+  try {
+    const rawValue = localStorage.getItem('postExamUploadSession')
+
+    if (!rawValue) {
+      return null
+    }
+
+    const parsed = JSON.parse(rawValue)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch (error) {
+    console.error('Failed to read local upload session fallback:', error)
+    return null
+  }
+}
+
+function storeLocalUploadSession (session) {
+  if (!session || typeof session !== 'object') {
+    return
+  }
+
+  try {
+    localStorage.setItem('postExamUploadSession', JSON.stringify(session))
+  } catch (error) {
+    console.error('Failed to persist local upload session fallback:', error)
+  }
+}
+
 function escapeHtml (value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -82,6 +110,7 @@ function setStatusBadge (status) {
 
 function renderUploadSession (session) {
   uploadSession = session
+  storeLocalUploadSession(session)
   setStatusBadge(session.status)
 
   const qrImage = document.getElementById('uploadSessionQrImage')
@@ -105,8 +134,18 @@ function renderUploadSession (session) {
     if (qrFallback) {
       qrFallback.hidden = true
     }
-  } else if (qrFallback) {
-    qrFallback.hidden = false
+  } else {
+    if (qrImage) {
+      qrImage.hidden = true
+      qrImage.removeAttribute('src')
+    }
+
+    if (qrFallback) {
+      qrFallback.textContent = uploadSession?.token
+        ? 'Generating QR code...'
+        : 'QR code unavailable'
+      qrFallback.hidden = false
+    }
   }
 
   if (mobileLink) {
@@ -213,7 +252,12 @@ function renderMissingSession () {
 }
 
 async function refreshUploadSession () {
-  if (!uploadSession?.token || !window.electronAPI?.refreshScanSession) {
+  if (!uploadSession?.token) {
+    return
+  }
+
+  if (!window.electronAPI?.refreshScanSession) {
+    renderUploadSession(uploadSession)
     return
   }
 
@@ -254,7 +298,8 @@ async function initializeUploadSessionPage () {
   }
 
   try {
-    const session = await window.electronAPI?.getScanSession?.()
+    const session =
+      (await window.electronAPI?.getScanSession?.()) || getLocalUploadSession()
 
     if (!session) {
       renderMissingSession()
@@ -262,6 +307,10 @@ async function initializeUploadSessionPage () {
     }
 
     renderUploadSession(session)
+
+    if (!session.qrCodeDataUrl && session.token && window.electronAPI?.refreshScanSession) {
+      await refreshUploadSession()
+    }
 
     if (!refreshTimerId) {
       refreshTimerId = window.setInterval(() => {

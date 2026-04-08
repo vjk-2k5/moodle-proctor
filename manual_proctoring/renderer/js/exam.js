@@ -1360,6 +1360,20 @@ function normalizeCompletionAttempt (reason, attempt = currentAttempt) {
   return nextAttempt
 }
 
+function storeLocalUploadSession (session) {
+  if (!session || typeof session !== 'object') {
+    return false
+  }
+
+  try {
+    localStorage.setItem('postExamUploadSession', JSON.stringify(session))
+    return true
+  } catch (error) {
+    console.warn('Failed to store local upload session fallback:', error)
+    return false
+  }
+}
+
 function formatDiagnosticValue (value) {
   if (value === null || value === undefined || value === '') {
     return 'n/a'
@@ -1498,15 +1512,26 @@ async function openPostExamUploadHandoff (reason = 'manual_submit') {
     return true
   }
 
+  if (uploadResult.session) {
+    const storedLocally = storeLocalUploadSession(uploadResult.session)
+
+    if (storedLocally) {
+      releaseExamResources()
+      window.location = 'upload-session.html'
+      return true
+    }
+  }
+
   const uploadDiagnostics = {
     stage: window.electronAPI?.openScanner
-      ? 'electron_open_scanner'
+      ? 'electron_open_scanner_failed_after_session_create'
       : 'electron_api_missing',
     hasElectronApi: Boolean(window.electronAPI),
     hasOpenScanner: Boolean(window.electronAPI?.openScanner),
     sessionCreated: Boolean(uploadResult.session),
     sessionToken: uploadResult.session?.token || null,
     mobileEntryUrl: uploadResult.session?.mobileEntryUrl || null,
+    localSessionStored: Boolean(uploadResult.session && storeLocalUploadSession(uploadResult.session)),
     ...(uploadResult.diagnostics || {})
   }
 
