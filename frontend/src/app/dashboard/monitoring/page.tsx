@@ -484,11 +484,58 @@ export default function LiveMonitoringPage() {
       </article>
 
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.45fr)_360px]">
-        <StudentsGrid
-          roomId={currentRoom?.roomCode}
-          onStudentSelect={setSelectedStudent}
-          selectedStudentName={selectedStudent?.studentName ?? null}
-        />
+        <div className="space-y-5">
+          <StudentsGrid
+            roomId={currentRoom?.roomCode}
+            onStudentSelect={setSelectedStudent}
+            selectedStudentName={selectedStudent?.studentName ?? null}
+          />
+
+          <section className="rounded-[20px] border border-slate-200 bg-white">
+            <div className="border-b border-slate-200 px-5 py-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-950">Active rooms</h3>
+                  <p className="mt-1 text-sm text-slate-600">Switch between live rooms here.</p>
+                </div>
+                <button type="button" onClick={() => refetchRooms()} className="btn-secondary" disabled={roomsLoading}>
+                  {roomsLoading ? <FiLoader className="h-4 w-4 animate-spin" /> : "Refresh"}
+                </button>
+              </div>
+            </div>
+
+            <div className="px-5 py-4">
+              {rooms.length === 0 ? (
+                <div className="text-sm text-slate-500">No active rooms.</div>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-2">
+                  {rooms.map((room) => {
+                    const isCurrent = room.roomCode === currentRoomCode;
+
+                    return (
+                      <button
+                        key={room.id}
+                        type="button"
+                        onClick={() => handleRoomSelect(room)}
+                        className={`rounded-[16px] border px-4 py-4 text-left ${
+                          isCurrent ? "border-emerald-500 bg-emerald-50" : "border-slate-200 bg-slate-50"
+                        }`}
+                      >
+                        <p className="text-sm font-semibold text-slate-900">{room.examName}</p>
+                        <p className="mt-1 text-sm text-slate-600">{room.courseName}</p>
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+                          <span>{room.roomCode}</span>
+                          <span>{room.studentCount} students</span>
+                          <span>{room.durationMinutes} min</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
 
         <aside className="space-y-4">
           <section className="rounded-[20px] border border-slate-200 bg-white">
@@ -642,51 +689,6 @@ export default function LiveMonitoringPage() {
           </section>
         </aside>
       </div>
-
-      <section className="rounded-[20px] border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-5 py-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h3 className="text-base font-semibold text-slate-950">Active rooms</h3>
-              <p className="mt-1 text-sm text-slate-600">Switch between live rooms here.</p>
-            </div>
-            <button type="button" onClick={() => refetchRooms()} className="btn-secondary" disabled={roomsLoading}>
-              {roomsLoading ? <FiLoader className="h-4 w-4 animate-spin" /> : "Refresh"}
-            </button>
-          </div>
-        </div>
-
-        <div className="px-5 py-4">
-          {rooms.length === 0 ? (
-            <div className="text-sm text-slate-500">No active rooms.</div>
-          ) : (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {rooms.map((room) => {
-                const isCurrent = room.roomCode === currentRoomCode;
-
-                return (
-                  <button
-                    key={room.id}
-                    type="button"
-                    onClick={() => handleRoomSelect(room)}
-                    className={`rounded-[16px] border px-4 py-4 text-left ${
-                      isCurrent ? "border-emerald-500 bg-emerald-50" : "border-slate-200 bg-slate-50"
-                    }`}
-                  >
-                    <p className="text-sm font-semibold text-slate-900">{room.examName}</p>
-                    <p className="mt-1 text-sm text-slate-600">{room.courseName}</p>
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
-                      <span>{room.roomCode}</span>
-                      <span>{room.studentCount} students</span>
-                      <span>{room.durationMinutes} min</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </section>
 
       <RoomSelector
         isOpen={isRoomSelectorOpen}
