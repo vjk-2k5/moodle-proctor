@@ -20,6 +20,14 @@ const AI_PROCTORING_PORT = 8000
 const AI_PROCTORING_HOST = '127.0.0.1'
 const AI_PROCTORING_DIR = path.join(__dirname, '..', 'ai_proctoring')
 const AI_PROCTORING_ENTRYPOINT = 'main.py'
+const QR_CODE_MODULE_PATH = path.join(
+  __dirname,
+  '..',
+  'Scanning-and-Uploading',
+  'unique-id-genration-for-students',
+  'node_modules',
+  'qrcode'
+)
 const PROTOCOL_NAME = 'proctor'
 const AUTO_JOIN_QUERY_VALUES = new Set(['1', 'true', 'yes'])
 const RENDERER_CHANNELS = {
@@ -29,6 +37,7 @@ const RENDERER_CHANNELS = {
 }
 
 let pendingRoomLaunch = null
+let currentScanSession = null
 
 const BLOCKED_APPS_CONFIG_PATH = path.join(
   __dirname,
@@ -165,6 +174,48 @@ function loadRendererPage (pageName, searchParams = {}) {
   }
 
   return mainWindow.loadURL(buildRendererUrl(pageName, searchParams))
+}
+
+let qrCodeModule = null
+
+function loadQrCodeModule () {
+  if (qrCodeModule) {
+    return qrCodeModule
+  }
+
+  qrCodeModule = require(QR_CODE_MODULE_PATH)
+  return qrCodeModule
+}
+
+async function buildScanSessionRendererPayload (payload) {
+  if (!payload || typeof payload !== 'object') {
+    return null
+  }
+
+  const nextPayload = {
+    ...payload
+  }
+
+  if (!nextPayload.mobileEntryUrl) {
+    return nextPayload
+  }
+
+  try {
+    const qrcode = loadQrCodeModule()
+    nextPayload.qrCodeDataUrl = await qrcode.toDataURL(nextPayload.mobileEntryUrl, {
+      errorCorrectionLevel: 'L',
+      margin: 2,
+      width: 320,
+      color: {
+        dark: '#101828',
+        light: '#ffffff'
+      }
+    })
+  } catch (error) {
+    console.error('Failed to generate upload session QR code:', error.message)
+  }
+
+  return nextPayload
 }
 
 function focusMainWindow () {
@@ -664,6 +715,8 @@ ipcMain.handle('safe-storage-decrypt-string', (_event, value) => {
   return safeStorage.decryptString(Buffer.from(String(value || ''), 'base64'))
 })
 
+ipcMain.handle('get-scan-session', () => currentScanSession)
+
 ipcMain.handle('set-blocked-app-monitoring-enabled', (_, isEnabled) => {
   if (!isDevelopmentMode) {
     return {
@@ -696,9 +749,11 @@ app.on('before-quit', () => {
 })
 
 // Open scanner page inside the existing main window
-ipcMain.on('open-scanner', () => {
+ipcMain.on('open-scanner', async (_event, payload) => {
   if (!mainWindow || mainWindow.isDestroyed()) {
     return
   }
-  mainWindow.loadURL('http://localhost:3000/scan?source=electron&token=exam-complete')
+
+  currentScanSession = await buildScanSessionRendererPayload(payload)
+  loadRendererPage('upload-session.html')
 })

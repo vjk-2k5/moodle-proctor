@@ -31,6 +31,7 @@ import manualProctoringRoutes from './modules/manual-proctoring/manual-proctorin
 import roomRoutes from './modules/room/room.routes'
 import liveMonitoringRoutes from './modules/live-monitoring/live-monitoring.routes'
 import ltiRoutes from './modules/lti/lti.routes'
+import scanRoutes from './modules/scan/scan.routes'
 
 // ============================================================================
 // Feature Flags
@@ -204,6 +205,7 @@ export async function createApp () {
   await app.register(roomRoutes)
   await app.register(liveMonitoringRoutes)
   await app.register(ltiRoutes)
+  await app.register(scanRoutes)
 
   // ==========================================================================
   // Health Check Endpoint

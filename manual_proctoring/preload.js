@@ -17,7 +17,8 @@ const IPC_CHANNELS = {
   fullscreenExited: 'fullscreen-exited',
   networkAppBlocked: 'network-app-blocked',
   aiProctoringStatus: 'ai-proctoring-status',
-  openScanner: 'open-scanner'
+  openScanner: 'open-scanner',
+  getScanSession: 'get-scan-session'
 }
 
 function send(channel, ...args) {
@@ -522,5 +523,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on(IPC_CHANNELS.aiProctoringStatus, (_, status) =>
       callback(status)
     ),
-  openScanner: () => send(IPC_CHANNELS.openScanner)
+  openScanner: payload => send(IPC_CHANNELS.openScanner, payload),
+  getScanSession: () => invoke(IPC_CHANNELS.getScanSession)
 })

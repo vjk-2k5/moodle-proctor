@@ -1406,6 +1406,42 @@ function finishExamUI (reason) {
   )
 }
 
+async function createAnswerSheetUploadSession (submissionReason = 'manual_submit') {
+  try {
+    const attemptId = Number(currentAttempt?.id || 0) || undefined
+    const response = await fetchWithSessionOrRoom(`${API_BASE_URL}/api/scan/sessions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        attemptId,
+        submissionReason,
+        source: 'electron_post_exam'
+      })
+    })
+
+    if (!response) {
+      return null
+    }
+
+    const data = await response.json()
+
+    if (!response.ok || !data.success) {
+      throw new Error(
+        data.error ||
+          data.message ||
+          'We could not prepare the answer sheet upload session.'
+      )
+    }
+
+    return data.data || data.session || null
+  } catch (error) {
+    console.error('Failed to create answer sheet upload session:', error)
+    return null
+  }
+}
+
 
 async function reportViolation (type, detail, severity = 'warning') {
   if (!examStarted || examSubmitted) {
@@ -1761,9 +1797,11 @@ async function submitExam (reason = 'manual_submit') {
       clearReconnectCheck()
     }
 
+    const uploadSession = await createAnswerSheetUploadSession(reason)
+
     // Send the IPC message BEFORE finishExamUI destroys the DOM
-    if (window.electronAPI?.openScanner) {
-      window.electronAPI.openScanner()
+    if (window.electronAPI?.openScanner && uploadSession) {
+      window.electronAPI.openScanner(uploadSession)
     } else {
       // Fallback: render completion screen if scanner bridge is unavailable
       finishExamUI(reason)

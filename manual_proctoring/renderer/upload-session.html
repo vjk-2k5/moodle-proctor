@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Answer Sheet Upload</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="exam-page upload-session-page">
+  <div class="upload-session-shell">
+    <section class="upload-session-hero">
+      <div>
+        <div class="upload-session-kicker">Post-Exam Upload</div>
+        <h1 class="upload-session-title">Upload Answer Sheet</h1>
+        <p class="upload-session-copy">
+          Your exam has been submitted. Ask the student to scan this QR code on their phone to open the answer sheet upload flow.
+        </p>
+      </div>
+      <div class="upload-session-badge" id="uploadSessionStatusBadge">Preparing session...</div>
+    </section>
+
+    <section class="upload-session-grid">
+      <article class="upload-session-card upload-session-card-qr">
+        <div class="upload-session-card-header">
+          <div>
+            <h2 class="upload-session-card-title">Student QR</h2>
+            <p class="upload-session-card-copy">This QR opens the mobile answer sheet flow with the generated upload token.</p>
+          </div>
+        </div>
+
+        <div class="upload-session-qr-frame">
+          <img id="uploadSessionQrImage" alt="Answer sheet upload QR code" hidden>
+          <div id="uploadSessionQrFallback" class="upload-session-qr-fallback">QR code unavailable</div>
+        </div>
+
+        <div class="upload-session-link-row">
+          <a id="uploadSessionMobileLink" class="upload-session-link" href="#" target="_blank" rel="noopener noreferrer">Open mobile upload link</a>
+        </div>
+      </article>
+
+      <article class="upload-session-card">
+        <div class="upload-session-card-header">
+          <div>
+            <h2 class="upload-session-card-title">Session Details</h2>
+            <p class="upload-session-card-copy">This first pass wires the handoff state. PDF receipt handling and teacher dashboard storage come in the next passes.</p>
+          </div>
+        </div>
+
+        <dl class="upload-session-meta">
+          <div class="upload-session-meta-row">
+            <dt>Student</dt>
+            <dd id="uploadSessionStudent">-</dd>
+          </div>
+          <div class="upload-session-meta-row">
+            <dt>Exam</dt>
+            <dd id="uploadSessionExam">-</dd>
+          </div>
+          <div class="upload-session-meta-row">
+            <dt>Attempt</dt>
+            <dd id="uploadSessionAttempt">-</dd>
+          </div>
+          <div class="upload-session-meta-row">
+            <dt>Token</dt>
+            <dd class="upload-session-token" id="uploadSessionToken">-</dd>
+          </div>
+          <div class="upload-session-meta-row">
+            <dt>Upload window</dt>
+            <dd id="uploadSessionWindow">-</dd>
+          </div>
+          <div class="upload-session-meta-row">
+            <dt>Expires in</dt>
+            <dd id="uploadSessionCountdown">-</dd>
+          </div>
+          <div class="upload-session-meta-row">
+            <dt>Accepted file</dt>
+            <dd id="uploadSessionAcceptedFiles">PDF</dd>
+          </div>
+        </dl>
+
+        <div class="upload-session-actions">
+          <button class="secondary-btn" id="uploadSessionBackButton" type="button">Back to Dashboard</button>
+        </div>
+      </article>
+    </section>
+  </div>
+
+  <script src="js/upload-session.js"></script>
+</body>
+</html>
