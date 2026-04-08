@@ -202,6 +202,7 @@ const EXAM_CONFIG = {
   proctorFrameIntervalMs: 125,
   liveSnapshotUploadIntervalMs: 350,
   aiWarningDefaultDwellMs: 0,
+  aiAdvisoryDefaultDwellMs: 1500,
   aiWarningDwellMs: {
     'No face detected': 500,
     'Multiple faces detected': 0,
@@ -210,6 +211,13 @@ const EXAM_CONFIG = {
     'Forbidden object detected': 0,
     'Identity could not be verified': 1000,
     'Camera may be blocked': 500
+  },
+  aiAdvisoryDwellMs: {
+    'Possible speech activity observed': 1500,
+    'Abnormal blink pattern observed': 2000,
+    'Lighting too dark for reliable monitoring': 1500,
+    'Lighting changed sharply': 1500,
+    'Background movement detected': 1500
   }
 }
 function getCurrentWarningLimit () {
@@ -477,6 +485,8 @@ function resetLiveMonitoringState () {
   lastProctorPayloadAt = 0
   activeViolations.clear()
   pendingAiViolations.clear()
+  activeAiAdvisories.clear()
+  pendingAiAdvisories.clear()
   setLiveAIWarnings([], [])
 }
 
@@ -1792,6 +1802,10 @@ const PROCTORING_VIOLATION_MAP = {
     type: 'gaze_away',
     detail: 'Candidate gaze directed away from screen.'
   },
+  'Possible speech activity observed': {
+    type: 'lip_movement',
+    detail: 'Possible speech activity was detected in the camera feed.'
+  },
   'Talking detected': {
     type: 'lip_movement',
     detail: 'Lip movement suggesting speech detected.'
@@ -1805,9 +1819,21 @@ const PROCTORING_VIOLATION_MAP = {
     type: 'blink_anomaly',
     detail: 'Unusual blink pattern detected.'
   },
+  'Abnormal blink pattern observed': {
+    type: 'blink_anomaly',
+    detail: 'An unusual blink pattern was observed in the live feed.'
+  },
   'Lighting too dark — face not visible': {
     type: 'lighting_dark',
     detail: 'Camera feed too dark to verify candidate.'
+  },
+  'Lighting too dark for reliable monitoring': {
+    type: 'lighting_dark',
+    detail: 'Lighting is too dark for reliable AI monitoring.'
+  },
+  'Lighting changed sharply': {
+    type: 'proctoring_advisory',
+    detail: 'Lighting changed sharply and may affect AI monitoring.'
   },
   'Background movement detected': {
     type: 'background_motion',
@@ -1830,6 +1856,8 @@ PROCTORING_VIOLATION_MAP['Lighting too dark - face not visible'] = {
 // Track active detector messages so they are only logged when first seen.
 const activeViolations = new Set()
 const pendingAiViolations = new Map()
+const activeAiAdvisories = new Set()
+const pendingAiAdvisories = new Map()
 
 function getMappedProctoringViolation (message) {
   if (PROCTORING_VIOLATION_MAP[message]) {
@@ -1864,7 +1892,46 @@ function getAiWarningDwellMs (message) {
   return EXAM_CONFIG.aiWarningDefaultDwellMs
 }
 
-function processIncomingAiViolations (incomingViolations) {
+function getAiAdvisoryDwellMs (message) {
+  for (const [pattern, dwellMs] of Object.entries(
+    EXAM_CONFIG.aiAdvisoryDwellMs
+  )) {
+    if (message === pattern || message.startsWith(`${pattern}:`)) {
+      return dwellMs
+    }
+  }
+
+  return EXAM_CONFIG.aiAdvisoryDefaultDwellMs
+}
+
+function recordAiSignal (message, severity = 'warning') {
+  const mapped = getMappedProctoringViolation(message)
+
+  if (mapped) {
+    showViolationStatus({
+      type: mapped.type,
+      detail: mapped.detail,
+      severity
+    })
+    reportViolation(mapped.type, mapped.detail, severity)
+    return
+  }
+
+  const fallbackType =
+    severity === 'warning' ? 'proctoring_alert' : 'proctoring_advisory'
+
+  showViolationStatus({
+    type: fallbackType,
+    detail: message,
+    severity
+  })
+  reportViolation(fallbackType, message, severity)
+}
+
+function processIncomingAiViolations (
+  incomingViolations,
+  incomingAdvisories = new Set()
+) {
   const now = Date.now()
 
   for (const message of incomingViolations) {
@@ -1883,23 +1950,7 @@ function processIncomingAiViolations (incomingViolations) {
       continue
     }
 
-    const mapped = getMappedProctoringViolation(message)
-    if (mapped) {
-      showViolationStatus({
-        type: mapped.type,
-        detail: mapped.detail,
-        severity: 'warning'
-      })
-      reportViolation(mapped.type, mapped.detail, 'warning')
-    } else {
-      showViolationStatus({
-        type: 'proctoring_alert',
-        detail: message,
-        severity: 'warning'
-      })
-      reportViolation('proctoring_alert', message, 'warning')
-    }
-
+    recordAiSignal(message, 'warning')
     activeViolations.add(message)
   }
 
@@ -1907,6 +1958,33 @@ function processIncomingAiViolations (incomingViolations) {
     if (!incomingViolations.has(message)) {
       pendingAiViolations.delete(message)
       activeViolations.delete(message)
+    }
+  }
+
+  for (const message of incomingAdvisories) {
+    if (!pendingAiAdvisories.has(message)) {
+      pendingAiAdvisories.set(message, now)
+    }
+
+    if (activeAiAdvisories.has(message)) {
+      continue
+    }
+
+    const firstSeenAt = pendingAiAdvisories.get(message) || now
+    const dwellMs = getAiAdvisoryDwellMs(message)
+
+    if (now - firstSeenAt < dwellMs) {
+      continue
+    }
+
+    recordAiSignal(message, 'info')
+    activeAiAdvisories.add(message)
+  }
+
+  for (const message of Array.from(pendingAiAdvisories.keys())) {
+    if (!incomingAdvisories.has(message)) {
+      pendingAiAdvisories.delete(message)
+      activeAiAdvisories.delete(message)
     }
   }
 }
@@ -2135,9 +2213,19 @@ function startFrameCaptureWithOverlay (video) {
         Array.from(incomingAdvisories)
       )
 
-      processIncomingAiViolations(incomingViolations)
+      processIncomingAiViolations(incomingViolations, incomingAdvisories)
 
-      if (incomingViolations.size === 0 && incomingAdvisories.size > 0) {
+      if (incomingViolations.size > 0) {
+        const primaryWarning = Array.from(incomingViolations)[0]
+        setAIProctoringStatus({
+          state: 'warning',
+          detail: primaryWarning || 'AI monitoring found an active warning.'
+        })
+        setExamStatus(
+          'AI proctoring detected an active warning. Check the warning panel and return to a safe state immediately.',
+          'warning'
+        )
+      } else if (incomingAdvisories.size > 0) {
         setAIProctoringStatus({
           state: 'running',
           detail: 'Live monitoring is active and showing advisory signals.'
