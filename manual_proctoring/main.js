@@ -18,6 +18,7 @@ let devBlockedAppMonitoringEnabled = !isDevelopmentMode
 
 const AI_PROCTORING_PORT = 8000
 const AI_PROCTORING_HOST = '127.0.0.1'
+const BACKEND_API_BASE_URL = process.env.BACKEND_API_URL || 'http://localhost:5000'
 const AI_PROCTORING_DIR = path.join(__dirname, '..', 'ai_proctoring')
 const AI_PROCTORING_ENTRYPOINT = 'main.py'
 const QR_CODE_MODULE_PATH = path.join(
@@ -216,6 +217,30 @@ async function buildScanSessionRendererPayload (payload) {
   }
 
   return nextPayload
+}
+
+async function fetchScanSessionSnapshot (token) {
+  const normalizedToken = String(token || '').trim()
+
+  if (!normalizedToken) {
+    return null
+  }
+
+  const response = await fetch(
+    `${BACKEND_API_BASE_URL}/api/scan/sessions/${encodeURIComponent(normalizedToken)}`,
+    {
+      method: 'GET',
+      cache: 'no-store'
+    }
+  )
+
+  const payload = await response.json().catch(() => ({}))
+
+  if (!response.ok && !payload?.data) {
+    throw new Error(payload?.error || `Failed to refresh scan session (${response.status})`)
+  }
+
+  return payload?.data || null
 }
 
 function focusMainWindow () {
@@ -716,6 +741,24 @@ ipcMain.handle('safe-storage-decrypt-string', (_event, value) => {
 })
 
 ipcMain.handle('get-scan-session', () => currentScanSession)
+
+ipcMain.handle('refresh-scan-session', async (_event, token) => {
+  const nextToken = String(token || currentScanSession?.token || '').trim()
+
+  if (!nextToken) {
+    return null
+  }
+
+  const latestSession = await fetchScanSessionSnapshot(nextToken)
+
+  if (!latestSession) {
+    currentScanSession = null
+    return null
+  }
+
+  currentScanSession = await buildScanSessionRendererPayload(latestSession)
+  return currentScanSession
+})
 
 ipcMain.handle('set-blocked-app-monitoring-enabled', (_, isEnabled) => {
   if (!isDevelopmentMode) {

@@ -37,6 +37,14 @@ export interface ListReportsQuery {
   offset?: number;
 }
 
+export interface ListAnswerSheetUploadsQuery {
+  examId?: number;
+  search?: string;
+  status?: 'awaiting_upload' | 'upload_in_progress' | 'uploaded' | 'expired';
+  limit?: number;
+  offset?: number;
+}
+
 export interface GetStatsQuery {
   timeRange?: 'hour' | 'day' | 'week' | 'month' | 'all';
   examId?: number;
@@ -259,6 +267,42 @@ export interface TeacherReportListResponse {
   data: {
     reports: TeacherReport[];
     total: number;
+  };
+}
+
+export interface TeacherAnswerSheetUpload {
+  id: number;
+  examId: number | null;
+  examName: string;
+  courseName: string | null;
+  attemptId: number | null;
+  attemptReference: string;
+  attemptStatus: string;
+  attemptSubmittedAt: Date | null;
+  attemptSubmissionReason: string | null;
+  attemptViolationCount: number;
+  studentIdentifier: string;
+  studentName: string;
+  studentEmail: string;
+  source: string;
+  status: 'awaiting_upload' | 'upload_in_progress' | 'uploaded' | 'expired';
+  uploadWindowMinutes: number;
+  expiresAt: Date;
+  uploadedAt: Date | null;
+  fileName: string | null;
+  fileSizeBytes: number | null;
+  mimeType: string | null;
+  receiptId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface TeacherAnswerSheetUploadListResponse {
+  success: true;
+  data: {
+    uploads: TeacherAnswerSheetUpload[];
+    total: number;
+    filters: ListAnswerSheetUploadsQuery;
   };
 }
 

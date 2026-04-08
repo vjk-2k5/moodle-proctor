@@ -4,12 +4,14 @@
 // ============================================================================
 
 import fp from 'fastify-plugin';
+import { createReadStream } from 'fs';
 import { createTeacherService } from './teacher.service';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { requireRole } from '../../websocket/ws.auth';
 import type { FastifyInstance } from 'fastify';
 import type {
   GetStatsQuery,
+  ListAnswerSheetUploadsQuery,
   ListAttemptsQuery,
   ListReportsQuery,
   ListStudentsQuery,
@@ -497,6 +499,69 @@ export default fp(async (fastify: FastifyInstance) => {
 
     const result = await teacherService.listReports(parsedQuery);
     return reply.send(result);
+  });
+
+  // ==========================================================================
+  // Answer Sheet Uploads
+  // ==========================================================================
+
+  fastify.get('/api/teacher/answer-sheet-uploads', {
+    onRequest: [authMiddleware]
+  }, async (request, reply) => {
+    const user = (request as any).user;
+    requireRole(user, ['teacher']);
+
+    const query = request.query as ListAnswerSheetUploadsQuery;
+
+    const parsedQuery: ListAnswerSheetUploadsQuery = {
+      examId: query.examId ? parseInt(query.examId as any, 10) : undefined,
+      search: query.search,
+      status: query.status,
+      limit: query.limit ? parseInt(query.limit as any, 10) : undefined,
+      offset: query.offset ? parseInt(query.offset as any, 10) : undefined
+    };
+
+    const result = await teacherService.listAnswerSheetUploads(parsedQuery);
+    return reply.send(result);
+  });
+
+  fastify.get('/api/teacher/answer-sheet-uploads/:id/file', {
+    onRequest: [authMiddleware]
+  }, async (request, reply) => {
+    const user = (request as any).user;
+    requireRole(user, ['teacher']);
+
+    const uploadId = parseInt((request.params as any).id, 10);
+
+    if (isNaN(uploadId)) {
+      return reply.code(400).send({
+        success: false,
+        error: 'Invalid answer sheet upload ID'
+      });
+    }
+
+    try {
+      const file = await teacherService.getAnswerSheetUploadFile(uploadId);
+
+      reply.header('Content-Type', file.mimeType);
+      reply.header('Content-Disposition', `inline; filename="${file.fileName}"`);
+      reply.header('Cache-Control', 'no-store');
+
+      return reply.send(createReadStream(file.absolutePath));
+    } catch (error) {
+      const message = (error as Error).message || 'Unable to load answer sheet PDF';
+      const statusCode =
+        message === 'Answer sheet upload not found'
+          ? 404
+          : message === 'No PDF has been uploaded for this answer sheet'
+            ? 409
+            : 500;
+
+      return reply.code(statusCode).send({
+        success: false,
+        error: message
+      });
+    }
   });
 
   // ==========================================================================

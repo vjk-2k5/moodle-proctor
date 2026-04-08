@@ -296,9 +296,15 @@ export default fp(
               ? 413
               : 500
 
+          const session =
+            statusCode === 409 || statusCode === 410
+              ? await scanService.getSession(token)
+              : null
+
           return reply.code(statusCode).send({
             success: false,
-            error: message
+            error: message,
+            data: session
           })
         }
       }

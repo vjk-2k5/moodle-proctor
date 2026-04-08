@@ -40,7 +40,7 @@
         <div class="upload-session-card-header">
           <div>
             <h2 class="upload-session-card-title">Session Details</h2>
-            <p class="upload-session-card-copy">This first pass wires the handoff state. PDF receipt handling and teacher dashboard storage come in the next passes.</p>
+            <p class="upload-session-card-copy" id="uploadSessionStateMessage">Waiting for the student to scan the QR and submit the answer sheet PDF.</p>
           </div>
         </div>
 
@@ -73,9 +73,22 @@
             <dt>Accepted file</dt>
             <dd id="uploadSessionAcceptedFiles">PDF</dd>
           </div>
+          <div class="upload-session-meta-row">
+            <dt>Uploaded at</dt>
+            <dd id="uploadSessionUploadedAt">Not uploaded yet</dd>
+          </div>
+          <div class="upload-session-meta-row">
+            <dt>Receipt</dt>
+            <dd id="uploadSessionReceipt">Pending</dd>
+          </div>
+          <div class="upload-session-meta-row">
+            <dt>File</dt>
+            <dd id="uploadSessionFileName">Pending PDF upload</dd>
+          </div>
         </dl>
 
         <div class="upload-session-actions">
+          <button class="secondary-btn" id="uploadSessionRefreshButton" type="button">Refresh Status</button>
           <button class="secondary-btn" id="uploadSessionBackButton" type="button">Back to Dashboard</button>
         </div>
       </article>

@@ -1,5 +1,6 @@
 let uploadSession = null
 let countdownTimerId = null
+let refreshTimerId = null
 
 function escapeHtml (value) {
   return String(value ?? '')
@@ -42,6 +43,24 @@ function formatCountdown (expiresAt) {
   return `${minutes}m ${String(seconds).padStart(2, '0')}s`
 }
 
+function formatUploadSummary (session) {
+  const status = String(session?.status || 'awaiting_upload')
+
+  if (status === 'uploaded') {
+    return 'Answer sheet PDF received. This upload is now stored and visible in the teacher dashboard.'
+  }
+
+  if (status === 'expired') {
+    return 'The upload window ended before a PDF was submitted. Create a new upload session if the teacher wants to accept a late file.'
+  }
+
+  if (status === 'upload_in_progress') {
+    return 'The student has started the upload. Keep this screen open until the status changes to uploaded.'
+  }
+
+  return 'Waiting for the student to scan the QR code and submit the answer sheet PDF from their phone.'
+}
+
 function setStatusBadge (status) {
   const badge = document.getElementById('uploadSessionStatusBadge')
 
@@ -75,6 +94,10 @@ function renderUploadSession (session) {
   const windowNode = document.getElementById('uploadSessionWindow')
   const countdown = document.getElementById('uploadSessionCountdown')
   const acceptedFiles = document.getElementById('uploadSessionAcceptedFiles')
+  const uploadedAt = document.getElementById('uploadSessionUploadedAt')
+  const receipt = document.getElementById('uploadSessionReceipt')
+  const fileName = document.getElementById('uploadSessionFileName')
+  const stateMessage = document.getElementById('uploadSessionStateMessage')
 
   if (qrImage && session.qrCodeDataUrl) {
     qrImage.src = session.qrCodeDataUrl
@@ -120,7 +143,31 @@ function renderUploadSession (session) {
   }
 
   if (countdown) {
-    countdown.textContent = formatCountdown(session.expiresAt)
+    countdown.textContent =
+      session.status === 'uploaded' ? 'Completed' : formatCountdown(session.expiresAt)
+  }
+
+  if (uploadedAt) {
+    uploadedAt.textContent = formatDateTime(session.upload?.uploadedAt)
+  }
+
+  if (receipt) {
+    receipt.textContent = session.upload?.receiptId || 'Pending'
+  }
+
+  if (fileName) {
+    if (session.upload?.fileName) {
+      const size = session.upload?.fileSizeBytes
+      fileName.textContent = size
+        ? `${session.upload.fileName} (${Math.round(size / 1024)} KB)`
+        : session.upload.fileName
+    } else {
+      fileName.textContent = 'Pending PDF upload'
+    }
+  }
+
+  if (stateMessage) {
+    stateMessage.textContent = formatUploadSummary(session)
   }
 
   if (countdownTimerId) {
@@ -134,7 +181,10 @@ function renderUploadSession (session) {
 
     const countdownNode = document.getElementById('uploadSessionCountdown')
     if (countdownNode) {
-      countdownNode.textContent = formatCountdown(uploadSession.expiresAt)
+      countdownNode.textContent =
+        uploadSession.status === 'uploaded'
+          ? 'Completed'
+          : formatCountdown(uploadSession.expiresAt)
     }
 
     if (Date.now() >= Number(uploadSession.expiresAt || 0)) {
@@ -150,7 +200,7 @@ function renderMissingSession () {
   setStatusBadge('expired')
 
   const fallback = document.getElementById('uploadSessionQrFallback')
-  const card = document.querySelector('.upload-session-card-copy')
+  const card = document.getElementById('uploadSessionStateMessage')
 
   if (fallback) {
     fallback.textContent = 'No active upload session'
@@ -162,11 +212,44 @@ function renderMissingSession () {
   }
 }
 
+async function refreshUploadSession () {
+  if (!uploadSession?.token || !window.electronAPI?.refreshScanSession) {
+    return
+  }
+
+  try {
+    const latestSession = await window.electronAPI.refreshScanSession(uploadSession.token)
+
+    if (!latestSession) {
+      renderMissingSession()
+      return
+    }
+
+    renderUploadSession(latestSession)
+
+    if (latestSession.status === 'uploaded' || latestSession.status === 'expired') {
+      if (refreshTimerId) {
+        clearInterval(refreshTimerId)
+        refreshTimerId = null
+      }
+    }
+  } catch (error) {
+    console.error('Failed to refresh upload session:', error)
+  }
+}
+
 async function initializeUploadSessionPage () {
   const backButton = document.getElementById('uploadSessionBackButton')
+  const refreshButton = document.getElementById('uploadSessionRefreshButton')
   if (backButton) {
     backButton.addEventListener('click', () => {
       window.location = 'dashboard.html'
+    })
+  }
+
+  if (refreshButton) {
+    refreshButton.addEventListener('click', () => {
+      refreshUploadSession()
     })
   }
 
@@ -179,6 +262,12 @@ async function initializeUploadSessionPage () {
     }
 
     renderUploadSession(session)
+
+    if (!refreshTimerId) {
+      refreshTimerId = window.setInterval(() => {
+        refreshUploadSession()
+      }, 10000)
+    }
   } catch (error) {
     console.error('Failed to load upload session:', error)
     renderMissingSession()
@@ -188,6 +277,10 @@ async function initializeUploadSessionPage () {
 window.addEventListener('beforeunload', () => {
   if (countdownTimerId) {
     clearInterval(countdownTimerId)
+  }
+
+  if (refreshTimerId) {
+    clearInterval(refreshTimerId)
   }
 })
 

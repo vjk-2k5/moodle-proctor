@@ -11,15 +11,40 @@ export interface PdfUploadResponse {
   session: ScanUploadSession | null;
 }
 
+export class ScanSessionRequestError extends Error {
+  status: number;
+  session: ScanUploadSession | null;
+
+  constructor(message: string, status: number, session?: ScanUploadSession | null) {
+    super(message);
+    this.name = 'ScanSessionRequestError';
+    this.status = status;
+    this.session = session ?? null;
+  }
+}
+
+async function parsePayload(response: Response): Promise<any> {
+  try {
+    return await response.json();
+  } catch {
+    return {};
+  }
+}
+
+function buildRequestError(response: Response, payload: any): ScanSessionRequestError {
+  const fallback = `HTTP ${response.status}`;
+  return new ScanSessionRequestError(
+    payload.error || payload.message || fallback,
+    response.status,
+    payload.data || payload.session || null
+  );
+}
+
 async function parseError(response: Response): Promise<string> {
+  const payload = await parsePayload(response);
   const fallback = `HTTP ${response.status}`;
 
-  try {
-    const payload = await response.json();
-    return payload.error || payload.message || fallback;
-  } catch {
-    return fallback;
-  }
+  return payload.error || payload.message || fallback;
 }
 
 export async function validateScanSession(
@@ -30,11 +55,12 @@ export async function validateScanSession(
     cache: 'no-store',
   });
 
+  const payload = await parsePayload(res);
+
   if (!res.ok) {
-    throw new Error(await parseError(res));
+    throw buildRequestError(res, payload);
   }
 
-  const payload = await res.json();
   return payload.data as ScanUploadSession;
 }
 
@@ -51,11 +77,13 @@ export async function uploadPdfAnswerSheet(
     body: formData,
   });
 
+  const payload = await parsePayload(res);
+
   if (!res.ok) {
-    throw new Error(await parseError(res));
+    throw buildRequestError(res, payload);
   }
 
-  return res.json();
+  return payload as PdfUploadResponse;
 }
 
 export async function requestUploadUrls(

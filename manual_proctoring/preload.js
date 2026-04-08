@@ -18,7 +18,8 @@ const IPC_CHANNELS = {
   networkAppBlocked: 'network-app-blocked',
   aiProctoringStatus: 'ai-proctoring-status',
   openScanner: 'open-scanner',
-  getScanSession: 'get-scan-session'
+  getScanSession: 'get-scan-session',
+  refreshScanSession: 'refresh-scan-session'
 }
 
 function send(channel, ...args) {
@@ -524,5 +525,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
       callback(status)
     ),
   openScanner: payload => send(IPC_CHANNELS.openScanner, payload),
-  getScanSession: () => invoke(IPC_CHANNELS.getScanSession)
+  getScanSession: () => invoke(IPC_CHANNELS.getScanSession),
+  refreshScanSession: token => invoke(IPC_CHANNELS.refreshScanSession, token)
 })

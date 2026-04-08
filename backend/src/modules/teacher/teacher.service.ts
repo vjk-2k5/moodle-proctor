@@ -9,11 +9,14 @@ import { randomUUID } from 'crypto';
 import { Pool } from 'pg';
 import config from '../../config';
 import type {
+  ListAnswerSheetUploadsQuery,
   TeacherExam,
   TeacherExamListResponse,
   TeacherAttempt,
   TeacherAttemptListResponse,
   TeacherAttemptDetailsResponse,
+  TeacherAnswerSheetUpload,
+  TeacherAnswerSheetUploadListResponse,
   TeacherViolationListResponse,
   TeacherStudentListResponse,
   TeacherReportListResponse,
@@ -931,6 +934,148 @@ export class TeacherService {
     };
   }
 
+  async listAnswerSheetUploads(
+    query: ListAnswerSheetUploadsQuery
+  ): Promise<TeacherAnswerSheetUploadListResponse> {
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (query.examId) {
+      params.push(query.examId);
+      conditions.push(`asu.exam_id = $${params.length}`);
+    }
+
+    if (query.status) {
+      params.push(query.status);
+      conditions.push(`asu.status = $${params.length}`);
+    }
+
+    if (query.search) {
+      params.push(`%${query.search}%`);
+      conditions.push(`(
+        asu.student_name ILIKE $${params.length} OR
+        asu.student_email ILIKE $${params.length} OR
+        asu.student_identifier ILIKE $${params.length} OR
+        asu.exam_name ILIKE $${params.length} OR
+        COALESCE(asu.course_name, '') ILIKE $${params.length} OR
+        asu.attempt_reference ILIKE $${params.length}
+      )`);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const filterParamCount = params.length;
+    const limit = Math.min(query.limit || 100, 200);
+    const offset = query.offset || 0;
+
+    const dataQuery = `
+      SELECT
+        asu.id,
+        asu.exam_id as "examId",
+        asu.exam_name as "examName",
+        asu.course_name as "courseName",
+        asu.attempt_id as "attemptId",
+        asu.attempt_reference as "attemptReference",
+        asu.attempt_status as "attemptStatus",
+        asu.attempt_submitted_at as "attemptSubmittedAt",
+        asu.attempt_submission_reason as "attemptSubmissionReason",
+        asu.attempt_violation_count as "attemptViolationCount",
+        asu.student_identifier as "studentIdentifier",
+        asu.student_name as "studentName",
+        asu.student_email as "studentEmail",
+        asu.source,
+        asu.status,
+        asu.upload_window_minutes as "uploadWindowMinutes",
+        asu.expires_at as "expiresAt",
+        asu.uploaded_at as "uploadedAt",
+        asu.file_name as "fileName",
+        asu.file_size_bytes as "fileSizeBytes",
+        asu.mime_type as "mimeType",
+        asu.receipt_id as "receiptId",
+        asu.created_at as "createdAt",
+        asu.updated_at as "updatedAt"
+      FROM answer_sheet_uploads asu
+      ${whereClause}
+      ORDER BY
+        CASE WHEN asu.status = 'uploaded' THEN 0 ELSE 1 END,
+        asu.uploaded_at DESC NULLS LAST,
+        asu.created_at DESC
+      LIMIT $${filterParamCount + 1} OFFSET $${filterParamCount + 2}
+    `;
+
+    params.push(limit, offset);
+
+    const countQuery = `
+      SELECT COUNT(*) as count
+      FROM answer_sheet_uploads asu
+      ${whereClause}
+    `;
+
+    const [dataResult, countResult] = await Promise.all([
+      this.pg.query(dataQuery, params),
+      this.pg.query(countQuery, params.slice(0, filterParamCount))
+    ]);
+
+    return {
+      success: true,
+      data: {
+        uploads: dataResult.rows.map(row => this.mapAnswerSheetUploadRow(row)),
+        total: parseInt(countResult.rows[0].count, 10),
+        filters: query
+      }
+    };
+  }
+
+  async getAnswerSheetUploadFile(uploadId: number): Promise<{
+    absolutePath: string;
+    fileName: string;
+    mimeType: string;
+  }> {
+    const result = await this.pg.query<{
+      storedPath: string | null;
+      fileName: string | null;
+      mimeType: string | null;
+    }>(
+      `SELECT
+         stored_path as "storedPath",
+         file_name as "fileName",
+         mime_type as "mimeType"
+       FROM answer_sheet_uploads
+       WHERE id = $1
+       LIMIT 1`,
+      [uploadId]
+    );
+
+    const row = result.rows[0];
+
+    if (!row) {
+      throw new Error('Answer sheet upload not found');
+    }
+
+    if (!row.storedPath || !row.fileName) {
+      throw new Error('No PDF has been uploaded for this answer sheet');
+    }
+
+    const absoluteUploadRoot = path.resolve(process.cwd(), config.upload.dir);
+    const absolutePath = path.resolve(row.storedPath);
+    const normalizedRoot = absoluteUploadRoot.toLowerCase();
+    const normalizedPath = absolutePath.toLowerCase();
+
+    if (
+      normalizedPath !== normalizedRoot &&
+      !normalizedPath.startsWith(`${normalizedRoot}${path.sep.toLowerCase()}`)
+    ) {
+      throw new Error('Stored answer sheet path is invalid');
+    }
+
+    await fs.access(absolutePath);
+
+    return {
+      absolutePath,
+      fileName: row.fileName,
+      mimeType: row.mimeType || 'application/pdf'
+    };
+  }
+
   async hideAttempt(attemptId: number, teacherId: number) {
     const result = await this.pg.query(
       `UPDATE exam_attempts
@@ -1156,6 +1301,35 @@ export class TeacherService {
   // ==========================================================================
   // Helpers
   // ==========================================================================
+
+  private mapAnswerSheetUploadRow(row: any): TeacherAnswerSheetUpload {
+    return {
+      id: Number(row.id),
+      examId: row.examId === null ? null : Number(row.examId),
+      examName: row.examName,
+      courseName: row.courseName ?? null,
+      attemptId: row.attemptId === null ? null : Number(row.attemptId),
+      attemptReference: row.attemptReference,
+      attemptStatus: row.attemptStatus,
+      attemptSubmittedAt: row.attemptSubmittedAt ?? null,
+      attemptSubmissionReason: row.attemptSubmissionReason ?? null,
+      attemptViolationCount: Number(row.attemptViolationCount || 0),
+      studentIdentifier: row.studentIdentifier,
+      studentName: row.studentName,
+      studentEmail: row.studentEmail,
+      source: row.source,
+      status: row.status,
+      uploadWindowMinutes: Number(row.uploadWindowMinutes || 0),
+      expiresAt: row.expiresAt,
+      uploadedAt: row.uploadedAt ?? null,
+      fileName: row.fileName ?? null,
+      fileSizeBytes: row.fileSizeBytes === null ? null : Number(row.fileSizeBytes),
+      mimeType: row.mimeType ?? null,
+      receiptId: row.receiptId ?? null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt
+    };
+  }
 
   private mapExamRow(row: any): TeacherExam {
     return {

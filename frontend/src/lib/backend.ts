@@ -109,6 +109,33 @@ export interface TeacherReport {
   };
 }
 
+export interface TeacherAnswerSheetUpload {
+  id: number;
+  examId: number | null;
+  examName: string;
+  courseName: string | null;
+  attemptId: number | null;
+  attemptReference: string;
+  attemptStatus: 'not_started' | 'in_progress' | 'submitted' | 'terminated';
+  attemptSubmittedAt: string | null;
+  attemptSubmissionReason: string | null;
+  attemptViolationCount: number;
+  studentIdentifier: string;
+  studentName: string;
+  studentEmail: string;
+  source: string;
+  status: 'awaiting_upload' | 'upload_in_progress' | 'uploaded' | 'expired';
+  uploadWindowMinutes: number;
+  expiresAt: string;
+  uploadedAt: string | null;
+  fileName: string | null;
+  fileSizeBytes: number | null;
+  mimeType: string | null;
+  receiptId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface TeacherExam {
   id: number;
   moodleCourseId: number | null;
@@ -125,6 +152,7 @@ export interface TeacherExam {
   autoSubmitOnWarningLimit: boolean;
   captureSnapshots: boolean;
   allowStudentRejoin: boolean;
+  answerSheetUploadWindowMinutes?: number;
   questionPaperPath: string | null;
   scheduledStartAt: string | null;
   scheduledEndAt: string | null;
@@ -167,6 +195,7 @@ export interface TeacherExamPayload {
   autoSubmitOnWarningLimit: boolean;
   captureSnapshots: boolean;
   allowStudentRejoin: boolean;
+  answerSheetUploadWindowMinutes?: number;
   scheduledStartAt?: string | null;
   scheduledEndAt?: string | null;
   questions: TeacherExamQuestion[];
@@ -344,6 +373,42 @@ class BackendAPIClient {
     return data as T;
   }
 
+  private async requestBlob(endpoint: string, options?: RequestInit): Promise<Blob> {
+    const url = `${this.baseUrl}${endpoint}`;
+    const headers = new Headers(options?.headers);
+
+    await this.ensureToken();
+
+    if (this.token) {
+      headers.set('Authorization', `Bearer ${this.token}`);
+    }
+
+    const response = await fetch(url, {
+      ...options,
+      headers,
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      let errorMessage = 'Request failed';
+
+      try {
+        const data = await response.json();
+        errorMessage = data?.error || errorMessage;
+      } catch {
+        // Ignore JSON parsing errors for blob/file responses.
+      }
+
+      if (response.status === 401) {
+        await this.handleUnauthorized();
+      }
+
+      throw new Error(errorMessage);
+    }
+
+    return response.blob();
+  }
+
   // ==========================================================================
   // Authentication
   // ==========================================================================
@@ -506,6 +571,31 @@ class BackendAPIClient {
     return this.request<{ success: true; data: { reports: TeacherReport[]; total: number } }>(
       `/api/teacher/reports${queryString ? `?${queryString}` : ''}`
     );
+  }
+
+  async getAnswerSheetUploads(query: {
+    examId?: number;
+    search?: string;
+    status?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    const params = new URLSearchParams();
+    Object.entries(query).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        params.append(key, value.toString());
+      }
+    });
+
+    const queryString = params.toString();
+    return this.request<{
+      success: true;
+      data: { uploads: TeacherAnswerSheetUpload[]; total: number };
+    }>(`/api/teacher/answer-sheet-uploads${queryString ? `?${queryString}` : ''}`);
+  }
+
+  async downloadAnswerSheetUploadFile(uploadId: number) {
+    return this.requestBlob(`/api/teacher/answer-sheet-uploads/${uploadId}/file`);
   }
 
   // ==========================================================================

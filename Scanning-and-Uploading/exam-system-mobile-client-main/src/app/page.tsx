@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useScanStore } from '@/store/scanStore';
 import QRScanner from '@/components/QRScanner';
-import { validateScanSession } from '@/lib/api';
+import { ScanSessionRequestError, validateScanSession } from '@/lib/api';
 
 type Stage = 'idle' | 'scanning' | 'processing' | 'error';
 
@@ -41,6 +41,13 @@ export default function HomePage() {
       setSession(session);
       router.push('/upload');
     } catch (err) {
+      if (err instanceof ScanSessionRequestError && err.session) {
+        reset();
+        setSession(err.session);
+        router.push('/upload');
+        return;
+      }
+
       setErrorMsg(
         err instanceof Error ? err.message : 'QR code not recognised'
       );
@@ -267,7 +274,7 @@ export default function HomePage() {
           style={{ animationDelay: '240ms' }}
         >
           <p className="text-text-muted text-xs font-mono">
-            Session is secured · PDF upload is verified before submission
+            Session is secured | PDF upload is verified before submission
           </p>
         </div>
       </div>

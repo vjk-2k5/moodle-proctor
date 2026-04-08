@@ -22,6 +22,10 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
     title: "Alerts",
     subtitle: "Review flagged attempts and follow up on higher-risk sessions."
   },
+  "/dashboard/answer-sheets": {
+    title: "Answer Sheets",
+    subtitle: "Review uploaded scanned PDFs and follow them back to the right student and exam."
+  },
   "/dashboard/students": {
     title: "Students",
     subtitle: "Check attempt status and manage visibility from one roster."

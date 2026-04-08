@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useScanStore } from '@/store/scanStore';
 
@@ -12,7 +12,6 @@ export default function SuccessPage() {
   const uploadReceipt = useScanStore((s) => s.uploadReceipt);
   const uploadStatus = useScanStore((s) => s.uploadStatus);
   const reset = useScanStore((s) => s.reset);
-  const hasReset = useRef(false);
 
   useEffect(() => {
     if (uploadStatus !== 'success') {
@@ -20,24 +19,15 @@ export default function SuccessPage() {
     }
   }, [uploadStatus, router]);
 
-  useEffect(() => {
-    const t = setTimeout(() => {
-      if (!hasReset.current) {
-        hasReset.current = true;
-        reset();
-      }
-    }, 2500);
-    return () => clearTimeout(t);
-  }, [reset]);
-
   if (uploadStatus !== 'success') return null;
 
-  const now = new Date();
-  const timeStr = now.toLocaleTimeString('en-IN', {
+  const uploadedAt = uploadReceipt?.uploadedAt || session?.upload.uploadedAt || null;
+  const uploadDate = uploadedAt ? new Date(uploadedAt) : new Date();
+  const timeStr = uploadDate.toLocaleTimeString('en-IN', {
     hour: '2-digit',
     minute: '2-digit',
   });
-  const dateStr = now.toLocaleDateString('en-IN', {
+  const dateStr = uploadDate.toLocaleDateString('en-IN', {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
@@ -91,7 +81,7 @@ export default function SuccessPage() {
           <p className="text-text-secondary mt-2 text-sm leading-relaxed">
             Your answer sheet PDF has been uploaded successfully.
             <br />
-            You may now close this page.
+            Keep this receipt if the teacher asks you to confirm submission.
           </p>
         </div>
 
@@ -147,10 +137,23 @@ export default function SuccessPage() {
         className="w-full pb-safe-bottom pb-8 pt-6 animate-fade-up"
         style={{ animationDelay: '720ms' }}
       >
-        <div className="text-center">
+        <div className="flex flex-col gap-4">
+          <button
+            type="button"
+            onClick={() => {
+              reset();
+              router.replace('/');
+            }}
+            className="w-full rounded-2xl bg-accent text-bg py-4 px-5 font-display font-bold text-base shadow-lg shadow-accent/20"
+          >
+            Done
+          </button>
+
+          <div className="text-center">
           <p className="text-text-muted text-xs font-mono">
             AI Proctor - Exam Management System
           </p>
+          </div>
         </div>
       </div>
     </div>

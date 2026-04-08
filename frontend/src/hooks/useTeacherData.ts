@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   backendAPI,
   ProctoringRoomSummary,
+  TeacherAnswerSheetUpload,
   TeacherAttempt,
   TeacherExam,
   TeacherReport,
@@ -174,6 +175,41 @@ export function useExams(filters?: { examId?: number }) {
   }, [filters?.examId]);
 
   return { exams, total, isLoading, error, refetch: fetchExams };
+}
+
+export function useAnswerSheetUploads(query: {
+  examId?: number;
+  search?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const [uploads, setUploads] = useState<TeacherAnswerSheetUpload[]>([]);
+  const [total, setTotal] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchUploads = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await backendAPI.getAnswerSheetUploads(query);
+      if (response.success) {
+        setUploads(response.data.uploads);
+        setTotal(response.data.total);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to fetch answer sheet uploads'));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUploads();
+  }, [query.examId, query.search, query.status, query.limit, query.offset]);
+
+  return { uploads, total, isLoading, error, refetch: fetchUploads };
 }
 
 export function useActiveRooms() {

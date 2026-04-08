@@ -3,7 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useScanStore } from '@/store/scanStore';
-import { uploadPdfAnswerSheet } from '@/lib/api';
+import {
+  ScanSessionRequestError,
+  uploadPdfAnswerSheet,
+  validateScanSession,
+} from '@/lib/api';
+import type { ScanUploadSession, UploadReceipt } from '@/lib/scanSession';
 
 function formatFileSize(bytes: number | null | undefined): string {
   if (!bytes || bytes <= 0) {
@@ -57,6 +62,24 @@ function formatCountdown(expiresAt: number): string {
   return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
 }
 
+function buildReceiptFromSession(session: ScanUploadSession): UploadReceipt | null {
+  if (
+    !session.upload?.receiptId ||
+    !session.upload?.uploadedAt ||
+    !session.upload?.fileName ||
+    !session.upload?.fileSizeBytes
+  ) {
+    return null;
+  }
+
+  return {
+    id: session.upload.receiptId,
+    uploadedAt: session.upload.uploadedAt,
+    fileName: session.upload.fileName,
+    fileSizeBytes: session.upload.fileSizeBytes,
+  };
+}
+
 export default function UploadPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -71,11 +94,13 @@ export default function UploadPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [countdown, setCountdown] = useState('');
+  const [confirmedStudent, setConfirmedStudent] = useState(false);
 
   const isExpired = useMemo(
     () => !session || Date.now() >= session.expiresAt || session.status === 'expired',
     [session]
   );
+  const isUploaded = session?.status === 'uploaded';
 
   useEffect(() => {
     if (!sessionToken || !session) {
@@ -103,12 +128,57 @@ export default function UploadPage() {
     return () => window.clearInterval(timer);
   }, [session, setSession]);
 
+  useEffect(() => {
+    setConfirmedStudent(false);
+    setSelectedFile(null);
+    setErrorMsg('');
+  }, [sessionToken]);
+
+  useEffect(() => {
+    if (!sessionToken) {
+      return;
+    }
+
+    let isActive = true;
+
+    const syncSession = async () => {
+      try {
+        const latestSession = await validateScanSession(sessionToken);
+
+        if (!isActive) {
+          return;
+        }
+
+        setSession(latestSession);
+      } catch (error) {
+        if (!isActive) {
+          return;
+        }
+
+        if (error instanceof ScanSessionRequestError && error.session) {
+          setSession(error.session);
+          return;
+        }
+
+        console.warn('[upload/page] Could not refresh scan session:', error);
+      }
+    };
+
+    syncSession();
+    const timer = window.setInterval(syncSession, 15000);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(timer);
+    };
+  }, [sessionToken, setSession]);
+
   if (!sessionToken || !session) {
     return null;
   }
 
   const handleChooseFile = () => {
-    if (uploadStatus === 'uploading' || isExpired) {
+    if (uploadStatus === 'uploading' || isExpired || isUploaded) {
       return;
     }
 
@@ -140,7 +210,14 @@ export default function UploadPage() {
   };
 
   const handleSubmit = async () => {
-    if (!selectedFile || !sessionToken || uploadStatus === 'uploading' || isExpired) {
+    if (
+      !selectedFile ||
+      !sessionToken ||
+      uploadStatus === 'uploading' ||
+      isExpired ||
+      isUploaded ||
+      !confirmedStudent
+    ) {
       return;
     }
 
@@ -159,6 +236,28 @@ export default function UploadPage() {
       setUploadStatus('success', 100);
       router.push('/success');
     } catch (error) {
+      if (error instanceof ScanSessionRequestError && error.session) {
+        setSession(error.session);
+
+        if (error.session.status === 'uploaded') {
+          setUploadResult(
+            error.session.upload.receiptId || `upload-${Date.now()}`,
+            buildReceiptFromSession(error.session)
+          );
+          setUploadStatus('success', 100);
+          router.push('/success');
+          return;
+        }
+
+        if (error.session.status === 'expired') {
+          setUploadStatus('error', 0);
+          setErrorMsg(
+            'This upload window has expired. Ask the teacher to create a fresh QR upload session if a late submission should be accepted.'
+          );
+          return;
+        }
+      }
+
       setUploadStatus('error', 0);
       setErrorMsg(
         error instanceof Error
@@ -185,23 +284,70 @@ export default function UploadPage() {
               Submit Answer Sheet PDF
             </h1>
             <p className="mt-2 text-sm text-text-secondary leading-relaxed max-w-[32rem]">
-              Upload the final scanned PDF for this student. This pass validates
-              the QR session and stores the PDF against the generated upload token.
+              Upload the final scanned PDF for this student. The session is
+              refreshed against the backend so duplicate, expired, and completed
+              uploads are shown clearly before you submit.
             </p>
           </div>
           <div
             className={`rounded-full px-3 py-1.5 text-xs font-mono border ${
-              isExpired
+              isUploaded
+                ? 'border-success/30 text-success bg-success/10'
+                : isExpired
                 ? 'border-danger/30 text-danger bg-danger/10'
                 : 'border-accent/20 text-accent bg-accent/5'
             }`}
           >
-            {isExpired ? 'Session expired' : countdown}
+            {isUploaded ? 'Already submitted' : isExpired ? 'Session expired' : countdown}
           </div>
         </div>
       </div>
 
       <div className="flex-1 px-5 py-5 flex flex-col gap-5 pb-32">
+        {isUploaded && (
+          <section className="rounded-3xl border border-success/30 bg-success/10 p-5 shadow-sm">
+            <p className="font-mono text-xs uppercase tracking-widest text-success">
+              Submission complete
+            </p>
+            <h2 className="mt-2 text-xl font-display font-bold text-text-primary">
+              This answer sheet has already been uploaded
+            </h2>
+            <p className="mt-2 text-sm text-text-secondary leading-relaxed">
+              A PDF was already submitted for this QR session. The teacher dashboard
+              now has the stored file for this student.
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl bg-bg border border-border p-4">
+                <p className="text-xs text-text-muted uppercase tracking-wider">Uploaded at</p>
+                <p className="mt-1 text-sm font-semibold text-text-primary">
+                  {formatDateTime(session.upload.uploadedAt)}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-bg border border-border p-4">
+                <p className="text-xs text-text-muted uppercase tracking-wider">Receipt</p>
+                <p className="mt-1 text-sm font-semibold text-text-primary">
+                  {session.upload.receiptId || 'Available in teacher dashboard'}
+                </p>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {isExpired && !isUploaded && (
+          <section className="rounded-3xl border border-danger/30 bg-danger/10 p-5 shadow-sm">
+            <p className="font-mono text-xs uppercase tracking-widest text-danger">
+              Upload window closed
+            </p>
+            <h2 className="mt-2 text-xl font-display font-bold text-text-primary">
+              This QR session has expired
+            </h2>
+            <p className="mt-2 text-sm text-text-secondary leading-relaxed">
+              The teacher-set answer sheet deadline has passed. A new upload session
+              is required if the submission should still be accepted.
+            </p>
+          </section>
+        )}
+
         <section className="rounded-3xl bg-surface border border-border p-5 shadow-sm">
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
@@ -234,6 +380,28 @@ export default function UploadPage() {
         </section>
 
         <section className="rounded-3xl bg-surface border border-border p-5 shadow-sm">
+          <p className="font-mono text-xs uppercase tracking-widest text-text-muted">
+            Student Confirmation
+          </p>
+          <h2 className="mt-2 text-xl font-display font-bold text-text-primary">
+            Confirm the upload belongs to this student
+          </h2>
+          <label className="mt-4 flex items-start gap-3 rounded-2xl border border-border bg-bg p-4">
+            <input
+              type="checkbox"
+              checked={confirmedStudent}
+              onChange={(event) => setConfirmedStudent(event.target.checked)}
+              disabled={isExpired || isUploaded || isUploading}
+              className="mt-1 h-4 w-4 accent-[var(--accent)]"
+            />
+            <span className="text-sm leading-relaxed text-text-secondary">
+              I confirm this PDF is for <strong className="text-text-primary">{session.student.name}</strong>
+              {' '}({session.student.studentId}) for <strong className="text-text-primary">{session.exam.name}</strong>.
+            </span>
+          </label>
+        </section>
+
+        <section className="rounded-3xl bg-surface border border-border p-5 shadow-sm">
           <div>
             <p className="font-mono text-xs uppercase tracking-widest text-text-muted">
               PDF Upload
@@ -243,7 +411,8 @@ export default function UploadPage() {
             </h2>
             <p className="mt-2 text-sm text-text-secondary leading-relaxed">
               Accepted type: PDF only. The current backend limit is 10 MB. Once
-              uploaded, the session is marked complete for this token.
+              uploaded, the session is marked complete for this token and repeated
+              submissions are blocked.
             </p>
           </div>
 
@@ -259,10 +428,14 @@ export default function UploadPage() {
             <button
               type="button"
               onClick={handleChooseFile}
-              disabled={isUploading || isExpired}
+              disabled={isUploading || isExpired || isUploaded}
               className="w-full rounded-2xl bg-accent text-bg py-4 px-5 font-display font-bold text-base disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {selectedFile ? 'Choose a different PDF' : 'Choose PDF'}
+              {isUploaded
+                ? 'PDF already submitted'
+                : selectedFile
+                ? 'Choose a different PDF'
+                : 'Choose PDF'}
             </button>
 
             <div className="mt-4 rounded-2xl bg-bg border border-border p-4">
@@ -318,11 +491,11 @@ export default function UploadPage() {
             </div>
             <div className="rounded-2xl bg-bg border border-border p-4">
               <p className="text-xs text-text-muted uppercase tracking-wider">
-                Status
-              </p>
-              <p className="mt-1 text-sm font-semibold text-text-primary">
-                {session.status.replace(/_/g, ' ')}
-              </p>
+                        Status
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-text-primary">
+                        {session.status.replace(/_/g, ' ')}
+                      </p>
             </div>
             <div className="rounded-2xl bg-bg border border-border p-4">
               <p className="text-xs text-text-muted uppercase tracking-wider">
@@ -340,10 +513,16 @@ export default function UploadPage() {
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={!selectedFile || isUploading || isExpired}
+          disabled={!selectedFile || isUploading || isExpired || isUploaded || !confirmedStudent}
           className="w-full rounded-2xl bg-accent text-bg py-4 px-5 font-display font-bold text-base disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-accent/20"
         >
-          {isUploading ? 'Uploading PDF...' : 'Submit Answer Sheet PDF'}
+          {isUploaded
+            ? 'Answer Sheet Already Submitted'
+            : isUploading
+            ? 'Uploading PDF...'
+            : !confirmedStudent
+            ? 'Confirm Student To Continue'
+            : 'Submit Answer Sheet PDF'}
         </button>
       </div>
     </div>
