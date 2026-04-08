@@ -32,9 +32,9 @@
 <div id="violationModal" class="modal-overlay" hidden>
   <div class="modal-card">
     <h3>Exam Rules And Violations</h3>
-    <p class="modal-copy">
+    <p id="violationModalCopy" class="modal-copy">
       Read these rules carefully. Every violation will be recorded, each warning will trigger a loud beep,
-      and your exam will be permanently terminated after 15 warnings.
+      and your exam will be permanently terminated after the warning limit is reached.
     </p>
 
     <ul class="violation-list">
@@ -45,12 +45,12 @@
       <li>Trying to print during the exam is a warning.</li>
       <li>Leaving the exam before submission may submit the exam immediately.</li>
       <li>Every warning increases your warning count and is written to the proctoring log.</li>
-      <li>At 15 warnings, the exam is auto-submitted and cannot be resumed.</li>
+      <li id="warningLimitRule">At the warning limit, the exam is auto-submitted and cannot be resumed.</li>
     </ul>
 
     <label class="agreement-row">
       <input type="checkbox" id="violationAgreement">
-      <span>I have read and understood the exam rules, warning policy, and 15-warning termination limit.</span>
+      <span id="warningLimitAgreement">I have read and understood the exam rules, warning policy, and the warning-limit termination policy.</span>
     </label>
 
     <div class="modal-actions">

@@ -201,6 +201,7 @@ const EXAM_CONFIG = {
   reconnectCheckIntervalMs: 5000,
   proctorFrameIntervalMs: 125,
   liveSnapshotUploadIntervalMs: 350,
+  aiSignalRetryCooldownMs: 1500,
   aiWarningDefaultDwellMs: 0,
   aiAdvisoryDefaultDwellMs: 1500,
   aiWarningDwellMs: {
@@ -220,13 +221,34 @@ const EXAM_CONFIG = {
     'Background movement detected': 1500
   }
 }
+
+function normalizeWarningLimit (value, fallback = 15) {
+  const normalizedValue = Number(value)
+
+  if (Number.isFinite(normalizedValue) && normalizedValue > 0) {
+    return normalizedValue
+  }
+
+  return fallback
+}
+
 function getCurrentWarningLimit () {
-  return Number(
+  return normalizeWarningLimit(
     currentAttempt?.maxWarnings ||
       currentExamSettings.maxWarnings ||
       EXAM_CONFIG.maxWarnings ||
       15
   )
+}
+
+function updateWarningLimitDisplay (limit = getCurrentWarningLimit()) {
+  const warningLimitTotalElement = document.getElementById('warningLimitTotal')
+
+  if (!warningLimitTotalElement) {
+    return
+  }
+
+  warningLimitTotalElement.innerText = `/ ${normalizeWarningLimit(limit)} warnings used`
 }
 
 const PROCTOR_FEED_UI = {
@@ -407,6 +429,8 @@ function updateViolationCount (count) {
   const violationCountElement = document.getElementById('violationCount')
   const warningProgressElement = document.getElementById('warningProgress')
 
+  updateWarningLimitDisplay()
+
   if (violationCountElement) {
     violationCountElement.innerText = String(normalizedCount)
   }
@@ -487,6 +511,9 @@ function resetLiveMonitoringState () {
   pendingAiViolations.clear()
   activeAiAdvisories.clear()
   pendingAiAdvisories.clear()
+  reportingAiViolations.clear()
+  reportingAiAdvisories.clear()
+  aiSignalRetryAt.clear()
   setLiveAIWarnings([], [])
 }
 
@@ -1317,7 +1344,10 @@ function formatCompletionTimestamp (timestamp) {
 
 function renderCompletionScreen (reasonLabel, attempt = {}) {
   const warningCount = Number(attempt.violationCount || 0)
-  const maxWarnings = Number(attempt.maxWarnings || MAX_WARNINGS)
+  const maxWarnings = normalizeWarningLimit(
+    attempt.maxWarnings,
+    getCurrentWarningLimit()
+  )
   const submissionReason = formatCompletionLabel(
     attempt.submissionReason,
     formatCompletionLabel(reasonLabel, 'Completed')
@@ -1379,7 +1409,7 @@ function finishExamUI (reason) {
 
 async function reportViolation (type, detail, severity = 'warning') {
   if (!examStarted || examSubmitted) {
-    return
+    return false
   }
 
   try {
@@ -1406,7 +1436,7 @@ async function reportViolation (type, detail, severity = 'warning') {
       markBackendDisconnected(
         'We could not reach the exam server while recording this event. Trying to reconnect...'
       )
-      return
+      return false
     }
 
     const data = await response.json()
@@ -1419,7 +1449,55 @@ async function reportViolation (type, detail, severity = 'warning') {
       )
     }
 
-    if (!data.attempt) {
+    const responseAttempt = data.attempt || data.data?.attempt || null
+    const responseViolation = data.violation || data.data?.violation || null
+    const responseViolationCount = data.data?.violationCount
+    let nextAttempt =
+      responseAttempt && typeof responseAttempt === 'object'
+        ? {
+            ...(currentAttempt || {}),
+            ...responseAttempt
+          }
+        : currentAttempt
+        ? { ...currentAttempt }
+        : null
+
+    if (nextAttempt && responseViolationCount !== undefined) {
+      nextAttempt.violationCount = Number(responseViolationCount || 0)
+    }
+
+    if (nextAttempt && responseViolation) {
+      const normalizedViolation = {
+        type:
+          responseViolation.type ||
+          responseViolation.violationType ||
+          type,
+        detail: responseViolation.detail || detail,
+        severity: responseViolation.severity || severity,
+        createdAt: responseViolation.createdAt
+          ? Number(responseViolation.createdAt)
+          : responseViolation.occurredAt
+          ? new Date(responseViolation.occurredAt).getTime()
+          : Date.now()
+      }
+
+      const existingViolations = Array.isArray(nextAttempt.violations)
+        ? nextAttempt.violations
+        : []
+      const isDuplicate = existingViolations.some(
+        violation =>
+          violation.type === normalizedViolation.type &&
+          violation.detail === normalizedViolation.detail &&
+          Number(violation.createdAt || 0) ===
+            Number(normalizedViolation.createdAt || 0)
+      )
+
+      nextAttempt.violations = isDuplicate
+        ? existingViolations
+        : [normalizedViolation, ...existingViolations]
+    }
+
+    if (!nextAttempt) {
       throw new Error('The server did not return the updated exam attempt state.')
     }
 
@@ -1430,23 +1508,24 @@ async function reportViolation (type, detail, severity = 'warning') {
         'Connection restored. Your exam is back online.'
       )
     }
-    currentAttempt = data.attempt
-    updateViolationCount(data.attempt.violationCount)
-    renderWarningHistory(data.attempt.violations)
+    currentAttempt = nextAttempt
+    updateViolationCount(nextAttempt.violationCount)
+    renderWarningHistory(nextAttempt.violations)
     if (severity === 'warning') {
       playWarningBeep()
     }
 
-    if (data.attempt.status === 'submitted') {
+    if (nextAttempt.status === 'submitted') {
       setExamStatus(
         data.message ||
           `Exam terminated after reaching ${getCurrentWarningLimit()} warnings.`,
         'error'
       )
-      finishExamUI(data.attempt.submissionReason || 'warning_limit_reached')
+      finishExamUI(nextAttempt.submissionReason || 'warning_limit_reached')
     } else {
       showViolationStatus({ type, detail, severity })
     }
+    return true
   } catch (error) {
     console.error('Failed to report violation:', error)
     const errorMessage =
@@ -1458,7 +1537,7 @@ async function reportViolation (type, detail, severity = 'warning') {
       markBackendDisconnected(
         'We could not reach the exam server while recording this event. Trying to reconnect...'
       )
-      return
+      return false
     }
 
     setExamStatus(
@@ -1466,6 +1545,7 @@ async function reportViolation (type, detail, severity = 'warning') {
       'error',
       { pin: true }
     )
+    return false
   }
 }
 
@@ -1536,6 +1616,7 @@ async function startExamAttempt () {
       'Connection restored. You can continue your exam.'
     )
   }
+  updateWarningLimitDisplay(data.attempt?.maxWarnings)
   updateViolationCount(data.attempt.violationCount)
   renderWarningHistory(data.attempt.violations)
   examStarted = true
@@ -1583,6 +1664,7 @@ async function loadExam () {
     }
 
     currentAttempt = data.attempt
+    updateWarningLimitDisplay()
 
     // Render header with room info or student info
     if (await isRoomBasedSession()) {
@@ -1858,6 +1940,9 @@ const activeViolations = new Set()
 const pendingAiViolations = new Map()
 const activeAiAdvisories = new Set()
 const pendingAiAdvisories = new Map()
+const reportingAiViolations = new Set()
+const reportingAiAdvisories = new Set()
+const aiSignalRetryAt = new Map()
 
 function getMappedProctoringViolation (message) {
   if (PROCTORING_VIOLATION_MAP[message]) {
@@ -1904,7 +1989,11 @@ function getAiAdvisoryDwellMs (message) {
   return EXAM_CONFIG.aiAdvisoryDefaultDwellMs
 }
 
-function recordAiSignal (message, severity = 'warning') {
+function getAiSignalRetryKey (message, severity = 'warning') {
+  return `${severity}:${message}`
+}
+
+async function recordAiSignal (message, severity = 'warning') {
   const mapped = getMappedProctoringViolation(message)
 
   if (mapped) {
@@ -1913,8 +2002,7 @@ function recordAiSignal (message, severity = 'warning') {
       detail: mapped.detail,
       severity
     })
-    reportViolation(mapped.type, mapped.detail, severity)
-    return
+    return reportViolation(mapped.type, mapped.detail, severity)
   }
 
   const fallbackType =
@@ -1925,7 +2013,7 @@ function recordAiSignal (message, severity = 'warning') {
     detail: message,
     severity
   })
-  reportViolation(fallbackType, message, severity)
+  return reportViolation(fallbackType, message, severity)
 }
 
 function processIncomingAiViolations (
@@ -1939,25 +2027,50 @@ function processIncomingAiViolations (
       pendingAiViolations.set(message, now)
     }
 
-    if (activeViolations.has(message)) {
+    if (activeViolations.has(message) || reportingAiViolations.has(message)) {
       continue
     }
 
     const firstSeenAt = pendingAiViolations.get(message) || now
     const dwellMs = getAiWarningDwellMs(message)
+    const retryKey = getAiSignalRetryKey(message, 'warning')
+    const retryAt = aiSignalRetryAt.get(retryKey) || 0
 
-    if (now - firstSeenAt < dwellMs) {
+    if (now - firstSeenAt < dwellMs || now < retryAt) {
       continue
     }
 
+    reportingAiViolations.add(message)
     recordAiSignal(message, 'warning')
-    activeViolations.add(message)
+      .then(wasRecorded => {
+        if (wasRecorded) {
+          activeViolations.add(message)
+          aiSignalRetryAt.delete(retryKey)
+          return
+        }
+
+        aiSignalRetryAt.set(
+          retryKey,
+          Date.now() + EXAM_CONFIG.aiSignalRetryCooldownMs
+        )
+      })
+      .catch(() => {
+        aiSignalRetryAt.set(
+          retryKey,
+          Date.now() + EXAM_CONFIG.aiSignalRetryCooldownMs
+        )
+      })
+      .finally(() => {
+        reportingAiViolations.delete(message)
+      })
   }
 
   for (const message of Array.from(pendingAiViolations.keys())) {
     if (!incomingViolations.has(message)) {
       pendingAiViolations.delete(message)
       activeViolations.delete(message)
+      reportingAiViolations.delete(message)
+      aiSignalRetryAt.delete(getAiSignalRetryKey(message, 'warning'))
     }
   }
 
@@ -1966,25 +2079,53 @@ function processIncomingAiViolations (
       pendingAiAdvisories.set(message, now)
     }
 
-    if (activeAiAdvisories.has(message)) {
+    if (
+      activeAiAdvisories.has(message) ||
+      reportingAiAdvisories.has(message)
+    ) {
       continue
     }
 
     const firstSeenAt = pendingAiAdvisories.get(message) || now
     const dwellMs = getAiAdvisoryDwellMs(message)
+    const retryKey = getAiSignalRetryKey(message, 'info')
+    const retryAt = aiSignalRetryAt.get(retryKey) || 0
 
-    if (now - firstSeenAt < dwellMs) {
+    if (now - firstSeenAt < dwellMs || now < retryAt) {
       continue
     }
 
+    reportingAiAdvisories.add(message)
     recordAiSignal(message, 'info')
-    activeAiAdvisories.add(message)
+      .then(wasRecorded => {
+        if (wasRecorded) {
+          activeAiAdvisories.add(message)
+          aiSignalRetryAt.delete(retryKey)
+          return
+        }
+
+        aiSignalRetryAt.set(
+          retryKey,
+          Date.now() + EXAM_CONFIG.aiSignalRetryCooldownMs
+        )
+      })
+      .catch(() => {
+        aiSignalRetryAt.set(
+          retryKey,
+          Date.now() + EXAM_CONFIG.aiSignalRetryCooldownMs
+        )
+      })
+      .finally(() => {
+        reportingAiAdvisories.delete(message)
+      })
   }
 
   for (const message of Array.from(pendingAiAdvisories.keys())) {
     if (!incomingAdvisories.has(message)) {
       pendingAiAdvisories.delete(message)
       activeAiAdvisories.delete(message)
+      reportingAiAdvisories.delete(message)
+      aiSignalRetryAt.delete(getAiSignalRetryKey(message, 'info'))
     }
   }
 }

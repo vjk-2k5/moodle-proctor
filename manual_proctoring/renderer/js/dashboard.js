@@ -18,6 +18,37 @@ function formatLabel(value) {
     .join(' ')
 }
 
+function getWarningLimit(attempt) {
+  const maxWarnings = Number(attempt?.maxWarnings)
+
+  if (Number.isFinite(maxWarnings) && maxWarnings > 0) {
+    return maxWarnings
+  }
+
+  return 15
+}
+
+function updateViolationPolicyCopy(maxWarnings = 15) {
+  const violationModalCopy = document.getElementById('violationModalCopy')
+  const warningLimitRule = document.getElementById('warningLimitRule')
+  const warningLimitAgreement = document.getElementById('warningLimitAgreement')
+
+  if (violationModalCopy) {
+    violationModalCopy.innerText =
+      `Read these rules carefully. Every violation will be recorded, each warning will trigger a loud beep, and your exam will be permanently terminated after ${maxWarnings} warnings.`
+  }
+
+  if (warningLimitRule) {
+    warningLimitRule.innerText =
+      `At ${maxWarnings} warnings, the exam is auto-submitted and cannot be resumed.`
+  }
+
+  if (warningLimitAgreement) {
+    warningLimitAgreement.innerText =
+      `I have read and understood the exam rules, warning policy, and ${maxWarnings}-warning termination limit.`
+  }
+}
+
 function renderAttemptSummary(attempt) {
   const attemptStatusElement = document.getElementById('attemptStatus')
   const attemptWarningsElement = document.getElementById('attemptWarnings')
@@ -29,7 +60,7 @@ function renderAttemptSummary(attempt) {
 
   const status = attempt?.status || 'not_started'
   const warningCount = Number(attempt?.violationCount || 0)
-  const maxWarnings = Number(attempt?.maxWarnings || 15)
+  const maxWarnings = getWarningLimit(attempt)
   const submissionReason = attempt?.submissionReason
 
   attemptStatusElement.innerText = formatLabel(status) || 'Not Started'
@@ -70,6 +101,7 @@ async function loadDashboard() {
     document.getElementById('studentName').innerText = data.student.name
     document.getElementById('studentEmail').innerText = data.student.email
     document.getElementById('examName').innerText = data.student.exam
+    updateViolationPolicyCopy(getWarningLimit(data.attempt))
     renderAttemptSummary(data.attempt)
     updateStartButton(data.attempt)
 
@@ -144,6 +176,7 @@ async function logout() {
 }
 
 window.addEventListener('load', () => {
+  updateViolationPolicyCopy()
   loadDashboard()
 
   const agreementCheckbox = document.getElementById('violationAgreement')

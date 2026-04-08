@@ -376,39 +376,37 @@ def _process_frame(frame: np.ndarray, state: SessionState) -> dict:
     background_motion_active = motion_result.get("motion_detected", False)
     identity_mismatch_active = identity_result.get("identity_status") == "mismatch"
 
+    # Some detectors already apply their own streaks/timeouts before reporting
+    # an active condition. Avoid double-thresholding those signals here, or the
+    # UI/backend warning counter will lag behind what the detector has already
+    # qualified as suspicious.
     if exposure_gate("no_face", no_face_active, C.LIVE_NO_FACE_EXPOSURE_SEC):
         violations.append("No face detected")
-    if exposure_gate("multiple_faces", multi_face_active, C.LIVE_MULTI_FACE_EXPOSURE_SEC):
+    if multi_face_active:
         violations.append("Multiple faces detected")
 
-    if exposure_gate("looking_away", looking_away_active, C.LIVE_LOOK_AWAY_EXPOSURE_SEC):
+    if looking_away_active:
         violations.append("Looking away from screen")
 
-    if exposure_gate("phone_detected", phone_active, C.LIVE_PHONE_EXPOSURE_SEC):
+    if phone_active:
         violations.append("Phone detected")
 
-    if exposure_gate("forbidden_object", object_active, C.LIVE_OBJECT_EXPOSURE_SEC):
+    if object_active:
         labels = object_result.get("labels", [])
         detail = f"Forbidden object detected: {', '.join(labels)}" if labels else "Forbidden object detected"
         violations.append(detail)
 
-    if C.ADVISORY_BLINK_ENABLED and exposure_gate("blink_anomaly", blink_active, C.LIVE_ADVISORY_EXPOSURE_SEC):
-        advisories.append("Abnormal blink pattern observed")
-
-    if C.ADVISORY_LIP_ENABLED and exposure_gate("lip_talking", lip_active, C.LIVE_ADVISORY_EXPOSURE_SEC):
-        advisories.append("Possible speech activity observed")
-
-    if exposure_gate("camera_blocked", camera_blocked_active, 0.0):
-        violations.append("Camera may be blocked")
-    if exposure_gate("too_dark", too_dark_active, C.LIVE_ADVISORY_EXPOSURE_SEC):
-        advisories.append("Lighting too dark for reliable monitoring")
-    if C.ADVISORY_LIGHTING_ENABLED and exposure_gate("lighting_change", lighting_change_active, C.LIVE_ADVISORY_EXPOSURE_SEC):
-        advisories.append("Lighting changed sharply")
-
-    if C.ADVISORY_MOTION_ENABLED and exposure_gate("background_motion", background_motion_active, C.LIVE_ADVISORY_EXPOSURE_SEC):
-        advisories.append("Background movement detected")
-
-    if exposure_gate("identity_mismatch", identity_mismatch_active, C.LIVE_IDENTITY_EXPOSURE_SEC):
+    # Live warning registration in the manual exam client is intentionally
+    # scoped to the five supported AI camera features only:
+    # 1. face monitoring
+    # 2. gaze tracking
+    # 3. phone detection
+    # 4. forbidden object detection
+    # 5. identity verification
+    #
+    # Optional modules such as blink/lip/lighting/motion may still run locally
+    # when enabled, but they are not forwarded as countable live warnings here.
+    if identity_mismatch_active:
         violations.append("Identity could not be verified")
 
     return {
