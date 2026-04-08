@@ -168,6 +168,122 @@ export default fp(async (fastify: FastifyInstance) => {
   });
 
   // ==========================================================================
+  // POST /api/room/:code/validate-token - Validate JWT token and return room info
+  // ==========================================================================
+  // NOTE: No authentication required - the JWT token IS the authentication
+
+  fastify.post('/api/room/:code/validate-token', {
+    schema: {
+      params: {
+        type: 'object',
+        properties: {
+          code: { type: 'string' }
+        },
+        required: ['code']
+      },
+      body: {
+        type: 'object',
+        properties: {
+          token: { type: 'string' }
+        },
+        required: ['token']
+      }
+    },
+    handler: async (request, reply) => {
+    const { code } = request.params as { code: string };
+    const { token } = request.body as { token: string };
+
+    try {
+      // Verify JWT token using Fastify's JWT plugin
+      const decoded = fastify.jwt.verify(token) as any;
+
+      // Check if token matches this room (case-insensitive)
+      if (decoded.roomCode?.toUpperCase() !== code.toUpperCase()) {
+        return reply.code(403).send({
+          success: false,
+          error: 'Token does not match this room'
+        });
+      }
+
+      // Check if token is expired (jwt.verify should handle this, but double-check)
+      if (decoded.exp && decoded.exp < Date.now() / 1000) {
+        return reply.code(403).send({
+          success: false,
+          error: 'Token has expired'
+        });
+      }
+
+      // Get room info with current enrollment count
+      const roomResult = await fastify.pg.query(
+        `SELECT r.id, r.room_code, r.capacity, r.status,
+                COUNT(e.id) as current_enrolled
+         FROM proctoring_rooms r
+         LEFT JOIN room_enrollments e ON e.room_id = r.id
+         WHERE r.room_code = $1
+         GROUP BY r.id`,
+        [code.toUpperCase()]
+      );
+
+      if (roomResult.rows.length === 0) {
+        return reply.code(404).send({
+          success: false,
+          error: 'Room not found'
+        });
+      }
+
+      const room = roomResult.rows[0];
+
+      // Check if room is active
+      if (room.status !== 'activated') {
+        return reply.code(400).send({
+          success: false,
+          error: 'Room is not active'
+        });
+      }
+
+      // Check capacity (prevent over-enrollment at validation stage)
+      const currentEnrolled = parseInt(room.current_enrolled) || 0;
+      if (currentEnrolled >= room.capacity) {
+        return reply.code(429).send({
+          success: false,
+          error: `Room is full (${currentEnrolled}/${room.capacity} students enrolled)`
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: {
+          roomId: room.id,
+          roomCode: room.room_code,
+          capacity: room.capacity,
+          currentEnrolled: currentEnrolled,
+          userId: decoded.userId
+        }
+      });
+
+    } catch (error) {
+      const errorObj = error as any;
+
+      if (errorObj.name === 'JsonWebTokenError' || errorObj.code === 'FAST_JWT_NO_ACTIVE') {
+        return reply.code(403).send({
+          success: false,
+          error: 'Invalid token'
+        });
+      }
+
+      if (errorObj.name === 'TokenExpiredError') {
+        return reply.code(403).send({
+          success: false,
+          error: 'Token has expired'
+        });
+      }
+
+      throw error;
+    }
+  }
+});
+
+  // ==========================================================================
   // POST /api/room/:code/join - Student joins a room with invite code
   // ==========================================================================
 
@@ -234,15 +350,17 @@ export default fp(async (fastify: FastifyInstance) => {
           }
         };
       } catch (error) {
+        const errorObj = error as any;
+
         // Handle specific error types with clear messages
-        if ((error as Error).name === 'RoomNotFoundError') {
+        if (errorObj.name === 'RoomNotFoundError') {
           return reply.code(404).send({
             success: false,
             error: 'Invalid invite code'
           });
         }
 
-        if ((error as Error).name === 'DuplicateEnrollmentError') {
+        if (errorObj.name === 'DuplicateEnrollmentError') {
           return reply.code(409).send({
             success: false,
             error: 'You are already enrolled in this room'
@@ -250,23 +368,34 @@ export default fp(async (fastify: FastifyInstance) => {
         }
 
         if (
-          (error as Error).name === 'RoomNotJoinableError' ||
-          (error as Error).name === 'AttemptAlreadyCompletedError'
+          errorObj.name === 'RoomNotJoinableError' ||
+          errorObj.name === 'AttemptAlreadyCompletedError'
         ) {
           return reply.code(409).send({
             success: false,
-            error: (error as Error).message
+            error: errorObj.message
           });
         }
 
-        if ((error as Error).name === 'RoomFullError') {
+        if (errorObj.name === 'RoomFullError') {
           return reply.code(429).send({
             success: false,
             error: 'This room is full. Please contact the instructor.'
           });
         }
 
-        // Generic error handler (catches database connection issues)
+        // Database-specific error handling
+        if (errorObj.code === 'ECONNREFUSED' ||
+            errorObj.code === 'CONNECTION_ERROR' ||
+            (errorObj.severity?.startsWith('ERROR') && errorObj.routine?.startsWith('SendRequest'))) {
+          fastify.log.error({ error }, 'Database connection failed during student join');
+          return reply.code(503).send({
+            success: false,
+            error: 'Unable to connect to the database. Please try again in a moment.'
+          });
+        }
+
+        // Generic error handler (catches all other errors)
         fastify.log.error({ error }, 'Error during student join');
         return reply.code(500).send({
           success: false,
@@ -297,6 +426,7 @@ export default fp(async (fastify: FastifyInstance) => {
             examName: room.exam_name,
             courseName: room.course_name,
             studentCount: room.student_count,
+            capacity: room.capacity,
             durationMinutes: room.duration_minutes,
             createdAt: room.created_at.toISOString(),
             activatedAt: room.activated_at?.toISOString() ?? null
@@ -365,6 +495,89 @@ export default fp(async (fastify: FastifyInstance) => {
       }
     }
   });
+
+  // ==========================================================================
+  // PUT /api/room/:id - Update room capacity (teacher only)
+  // ==========================================================================
+
+  fastify.put('/api/room/:id', {
+    onRequest: [authMiddleware],
+    schema: {
+      params: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' }
+        },
+        required: ['id']
+      },
+      body: {
+        type: 'object',
+        properties: {
+          capacity: { type: 'number', minimum: 1, maximum: 100 }
+        },
+        required: ['capacity']
+      }
+    },
+    handler: async (request, reply) => {
+    // @ts-ignore
+    const teacherId = request.user.id;
+    const { id } = request.params as { id: string };
+    const { capacity } = request.body as { capacity: number };
+
+    try {
+      const roomId = parseInt(id, 10);
+
+      // Verify room exists and ownership
+      const roomResult = await fastify.pg.query(
+        'SELECT id, teacher_id, capacity FROM proctoring_rooms WHERE id = $1',
+        [roomId]
+      );
+
+      if (roomResult.rows.length === 0) {
+        return reply.code(404).send({
+          success: false,
+          error: 'Room not found'
+        });
+      }
+
+      const room = roomResult.rows[0];
+
+      // Verify ownership
+      if (room.teacher_id !== teacherId) {
+        return reply.code(403).send({
+          success: false,
+          error: 'You do not own this room'
+        });
+      }
+
+      // Update capacity
+      const updateResult = await fastify.pg.query(
+        'UPDATE proctoring_rooms SET capacity = $1 WHERE id = $2 RETURNING *',
+        [capacity, roomId]
+      );
+
+      return reply.send({
+        success: true,
+        data: updateResult.rows[0]
+      });
+
+    } catch (error) {
+      const errorObj = error as any;
+
+      // Database-specific error handling
+      if (errorObj.code === 'ECONNREFUSED' ||
+          errorObj.code === 'CONNECTION_ERROR') {
+        fastify.log.error({ error }, 'Database connection failed during room update');
+        return reply.code(503).send({
+          success: false,
+          error: 'Unable to connect to the database. Please try again in a moment.'
+        });
+      }
+
+      throw error;
+    }
+  }
+});
 
   // ==========================================================================
   // POST /api/room/:id/close - Close a room (teacher ends exam)

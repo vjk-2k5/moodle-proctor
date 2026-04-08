@@ -9,11 +9,13 @@ import {
   FiLoader,
   FiMonitor,
   FiPlus,
+  FiSave,
   FiShield,
   FiSlash,
   FiTrash2,
   FiUsers,
-  FiVideo
+  FiVideo,
+  FiX
 } from "react-icons/fi";
 
 import { AlertPanel } from "@components/AlertPanel";
@@ -66,6 +68,9 @@ export default function LiveMonitoringPage() {
   const [isClosingRoom, setIsClosingRoom] = useState(false);
   const [isDeletingRoom, setIsDeletingRoom] = useState(false);
   const [roomActionError, setRoomActionError] = useState<string | null>(null);
+  const [editingRoomId, setEditingRoomId] = useState<number | null>(null);
+  const [editingCapacity, setEditingCapacity] = useState<number>(15);
+  const [isUpdatingCapacity, setIsUpdatingCapacity] = useState(false);
   const hasHydratedRoom = useRef(false);
 
   const suspiciousCount = attempts.filter((attempt) => attempt.violationCount >= 5).length;
@@ -570,11 +575,73 @@ export default function LiveMonitoringPage() {
                               </p>
                               <div
                                 className={[
-                                  "mt-3 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.16em]",
+                                  "mt-3 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em]",
                                   isCurrent ? "text-slate-300" : "text-slate-400"
                                 ].join(" ")}
                               >
                                 <span>{room.studentCount} students</span>
+                                {editingRoomId === room.id ? (
+                                  <span className="inline-flex items-center gap-1">
+                                    <span>/</span>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      max="100"
+                                      value={editingCapacity}
+                                      onChange={(e) => setEditingCapacity(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
+                                      className={[
+                                        "w-16 rounded border px-1.5 py-0.5 text-center font-semibold",
+                                        isCurrent
+                                          ? "border-white/30 bg-white/10 text-white focus:border-white/50 focus:outline-none"
+                                          : "border-slate-300 bg-white text-slate-950 focus:border-emerald-600 focus:outline-none"
+                                      ].join(" ")}
+                                      disabled={isUpdatingCapacity}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={handleSaveCapacity}
+                                      disabled={isUpdatingCapacity || editingCapacity < room.studentCount}
+                                      className={[
+                                        "inline-flex items-center gap-1 rounded px-2 py-0.5 transition-colors",
+                                        isCurrent
+                                          ? "bg-white/20 text-white hover:bg-white/30 disabled:opacity-50"
+                                          : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 disabled:opacity-50"
+                                      ].join(" ")}
+                                    >
+                                      <FiSave className="h-3 w-3" />
+                                      {isUpdatingCapacity ? "Saving..." : "Save"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={handleCancelEditingCapacity}
+                                      disabled={isUpdatingCapacity}
+                                      className={[
+                                        "inline-flex items-center gap-1 rounded px-2 py-0.5 transition-colors",
+                                        isCurrent
+                                          ? "bg-white/20 text-white hover:bg-white/30 disabled:opacity-50"
+                                          : "bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+                                      ].join(" ")}
+                                    >
+                                      <FiX className="h-3 w-3" />
+                                    </button>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1">
+                                    <span>/ {room.capacity} max</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleStartEditingCapacity(room)}
+                                      className={[
+                                        "ml-1 inline-flex items-center gap-1 rounded px-2 py-0.5 transition-colors",
+                                        isCurrent
+                                          ? "bg-white/20 text-white hover:bg-white/30"
+                                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                                      ].join(" ")}
+                                    >
+                                      Edit
+                                    </button>
+                                  </span>
+                                )}
                                 <span>{room.durationMinutes} min</span>
                                 <span>{room.roomCode}</span>
                               </div>

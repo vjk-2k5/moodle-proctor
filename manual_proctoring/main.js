@@ -119,6 +119,7 @@ function parseRoomLaunch (rawUrl) {
       roomCode: normalizedRoomCode,
       studentName: String(parsedUrl.searchParams.get('name') || '').trim(),
       studentEmail: String(parsedUrl.searchParams.get('email') || '').trim(),
+      token: String(parsedUrl.searchParams.get('token') || '').trim(), // NEW: Extract JWT token
       autoJoin: AUTO_JOIN_QUERY_VALUES.has(autoJoinValue)
     }
   } catch (error) {
@@ -191,6 +192,7 @@ function loadPendingRoomLaunch () {
     code: roomLaunch.roomCode,
     name: roomLaunch.studentName,
     email: roomLaunch.studentEmail,
+    token: roomLaunch.token, // NEW: Pass JWT token to join page
     autoJoin: roomLaunch.autoJoin ? '1' : undefined
   })
 }

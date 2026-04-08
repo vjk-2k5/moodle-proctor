@@ -129,6 +129,7 @@ export interface ProctoringRoomSummary {
   examName: string;
   courseName: string;
   studentCount: number;
+  capacity: number;
   durationMinutes: number;
   createdAt: string;
   activatedAt: string | null;

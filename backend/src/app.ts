@@ -7,6 +7,7 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import jwt from '@fastify/jwt'
 import cookie from '@fastify/cookie'
+import { parse as parseQueryString } from 'querystring'
 import config from './config'
 import logger from './config/logger'
 
@@ -29,6 +30,7 @@ import teacherSSE from './modules/teacher/teacher.sse'
 import manualProctoringRoutes from './modules/manual-proctoring/manual-proctoring.routes'
 import roomRoutes from './modules/room/room.routes'
 import liveMonitoringRoutes from './modules/live-monitoring/live-monitoring.routes'
+import ltiRoutes from './modules/lti/lti.routes'
 
 // ============================================================================
 // Feature Flags
@@ -90,6 +92,16 @@ export async function createApp () {
   // Cookie support
   await app.register(cookie, {
     secret: config.jwt.secret
+  })
+
+  // Form body parser (for LTI launch requests)
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (req, body, done) => {
+    try {
+      const parsed = parseQueryString(body.toString())
+      done(null, parsed)
+    } catch (err) {
+      done(err as Error)
+    }
   })
 
   // CSRF protection (for state-changing operations)
@@ -191,6 +203,7 @@ export async function createApp () {
   await app.register(manualProctoringRoutes)
   await app.register(roomRoutes)
   await app.register(liveMonitoringRoutes)
+  await app.register(ltiRoutes)
 
   // ==========================================================================
   // Health Check Endpoint

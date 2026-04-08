@@ -1,0 +1,1 @@
+/home/aryaniyaps/web-projects/moodle-proctor/.claude/skills/gstack/gstack-upgrade/SKILL.md

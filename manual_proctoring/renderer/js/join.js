@@ -23,6 +23,37 @@ function setLoadingState(isLoading) {
 
 let hasAttemptedAutoJoin = false;
 
+/**
+ * Validate JWT token and get room info
+ * Called when token is present in URL (LTI launch)
+ */
+async function validateTokenAndGetRoomInfo(token, roomCode) {
+  try {
+    const { apiBaseUrl, headers } = getManualProctoringConfig();
+
+    const response = await fetch(`${apiBaseUrl}/api/room/${roomCode}/validate-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...headers
+      },
+      body: JSON.stringify({ token })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      return { valid: false, error: data.error };
+    }
+
+    return { valid: true, roomInfo: data.data };
+
+  } catch (error) {
+    console.error('Token validation error:', error);
+    return { valid: false, error: 'Unable to validate token' };
+  }
+}
+
 function getManualProctoringConfig() {
   if (typeof API_BASE_URL !== 'string' || !API_BASE_URL.trim()) {
     throw new Error('The student app configuration did not load correctly.');
@@ -121,6 +152,10 @@ async function joinRoom() {
   const rawCode = codeInput.value;
   const roomCode = normalizeRoomCode(rawCode);
 
+  // Get token from URL params (if present from LTI launch)
+  const urlParams = new URLSearchParams(window.location.search);
+  const token = urlParams.get('token');
+
   // Validate inputs
   if (!validateInputs(name, email, rawCode)) {
     return;
@@ -131,6 +166,33 @@ async function joinRoom() {
 
   try {
     const { apiBaseUrl, headers } = getManualProctoringConfig();
+
+    // NEW: Validate token if present (LTI launch flow)
+    if (token) {
+      const validation = await validateTokenAndGetRoomInfo(token, roomCode);
+
+      if (!validation.valid) {
+        setMessage(`Token validation failed: ${validation.error}`, 'error');
+        return;
+      }
+
+      // Token is valid - prefill user info if not already filled
+      if (!name && validation.roomInfo.userId) {
+        // Fetch user info from backend using validated user ID
+        try {
+          const userResponse = await fetch(`${apiBaseUrl}/api/user/${validation.roomInfo.userId}`, { headers });
+          const userData = await userResponse.json();
+
+          if (userData.success) {
+            nameInput.value = userData.data.name || name;
+            emailInput.value = userData.data.email || email;
+          }
+        } catch (userError) {
+          console.error('Failed to fetch user info:', userError);
+          // Continue with prefilled values from URL
+        }
+      }
+    }
 
     const response = await fetch(`${apiBaseUrl}/api/room/${roomCode}/join`, {
       method: 'POST',
