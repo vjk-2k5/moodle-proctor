@@ -1,17 +1,63 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// API Client
-// ─────────────────────────────────────────────────────────────────────────────
+import type { ScanUploadSession, UploadReceipt } from '@/lib/scanSession';
 
 export interface UploadUrlsResponse {
   uploadId: string;
-  urls: string[]; // pre-signed S3 PUT URLs, one per page
+  urls: string[];
 }
 
-/**
- * Request pre-signed S3 PUT URLs for the given number of pages.
- * Calls our Next.js API route which validates the session token
- * and generates the signed URLs.
- */
+export interface PdfUploadResponse {
+  uploadId: string;
+  receipt: UploadReceipt | null;
+  session: ScanUploadSession | null;
+}
+
+async function parseError(response: Response): Promise<string> {
+  const fallback = `HTTP ${response.status}`;
+
+  try {
+    const payload = await response.json();
+    return payload.error || payload.message || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function validateScanSession(
+  token: string
+): Promise<ScanUploadSession> {
+  const res = await fetch(`/api/session/${encodeURIComponent(token)}`, {
+    method: 'GET',
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+
+  const payload = await res.json();
+  return payload.data as ScanUploadSession;
+}
+
+export async function uploadPdfAnswerSheet(
+  sessionToken: string,
+  file: File
+): Promise<PdfUploadResponse> {
+  const formData = new FormData();
+  formData.set('token', sessionToken);
+  formData.set('file', file);
+
+  const res = await fetch('/api/pdf-upload', {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+
+  return res.json();
+}
+
 export async function requestUploadUrls(
   sessionToken: string,
   pageCount: number
@@ -23,16 +69,12 @@ export async function requestUploadUrls(
   });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message ?? `HTTP ${res.status}`);
+    throw new Error(await parseError(res));
   }
 
   return res.json();
 }
 
-/**
- * Notify backend that all pages have been uploaded successfully.
- */
 export async function confirmUpload(
   sessionToken: string,
   uploadId: string
@@ -44,7 +86,6 @@ export async function confirmUpload(
   });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message ?? `HTTP ${res.status}`);
+    throw new Error(await parseError(res));
   }
 }

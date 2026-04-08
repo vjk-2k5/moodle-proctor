@@ -7,40 +7,44 @@ import { useScanStore } from '@/store/scanStore';
 export default function SuccessPage() {
   const router = useRouter();
   const studentId = useScanStore((s) => s.studentId);
-  const pages = useScanStore((s) => s.pages);
+  const session = useScanStore((s) => s.session);
   const uploadId = useScanStore((s) => s.uploadId);
+  const uploadReceipt = useScanStore((s) => s.uploadReceipt);
   const uploadStatus = useScanStore((s) => s.uploadStatus);
   const reset = useScanStore((s) => s.reset);
-  const pageCount = pages.length;
   const hasReset = useRef(false);
 
-  // Guard: if not coming from a successful upload, redirect
   useEffect(() => {
     if (uploadStatus !== 'success') {
       router.replace('/');
     }
   }, [uploadStatus, router]);
 
-  // Clear session from store after a short delay (let animation play)
   useEffect(() => {
     const t = setTimeout(() => {
       if (!hasReset.current) {
         hasReset.current = true;
         reset();
       }
-    }, 2000);
+    }, 2500);
     return () => clearTimeout(t);
   }, [reset]);
 
   if (uploadStatus !== 'success') return null;
 
   const now = new Date();
-  const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-  const dateStr = now.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  const timeStr = now.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const dateStr = now.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
 
   return (
     <div className="min-h-screen bg-bg flex flex-col items-center justify-between px-6 py-safe-top overflow-hidden">
-      {/* ── Background glow ─────────────────────────────────────────────────── */}
       <div className="fixed inset-0 pointer-events-none">
         <div
           className="absolute inset-0 opacity-10"
@@ -50,12 +54,8 @@ export default function SuccessPage() {
         />
       </div>
 
-      {/* ── Top spacer ──────────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col items-center justify-center w-full relative z-10 pt-12">
-
-        {/* ── Success icon ──────────────────────────────────────────────────── */}
         <div className="relative mb-8">
-          {/* Outer rings */}
           <div
             className="absolute inset-0 -m-6 rounded-full border border-accent/20"
             style={{ animation: 'successRing 0.6s cubic-bezier(0.34,1.56,0.64,1) 0.1s both' }}
@@ -65,7 +65,6 @@ export default function SuccessPage() {
             style={{ animation: 'successRing 0.6s cubic-bezier(0.34,1.56,0.64,1) 0.2s both' }}
           />
 
-          {/* Main circle */}
           <div
             className="w-20 h-20 rounded-full bg-accent flex items-center justify-center shadow-xl shadow-accent/40"
             style={{ animation: 'successRing 0.5s cubic-bezier(0.34,1.56,0.64,1) 0.3s both' }}
@@ -82,7 +81,6 @@ export default function SuccessPage() {
           </div>
         </div>
 
-        {/* ── Title ────────────────────────────────────────────────────────── */}
         <div
           className="text-center mb-8 animate-fade-up"
           style={{ animationDelay: '400ms' }}
@@ -91,18 +89,16 @@ export default function SuccessPage() {
             Submitted!
           </h1>
           <p className="text-text-secondary mt-2 text-sm leading-relaxed">
-            Your answer sheet has been uploaded securely.
+            Your answer sheet PDF has been uploaded successfully.
             <br />
             You may now close this page.
           </p>
         </div>
 
-        {/* ── Receipt card ─────────────────────────────────────────────────── */}
         <div
           className="w-full bg-surface border border-border rounded-2xl overflow-hidden animate-fade-up"
           style={{ animationDelay: '520ms' }}
         >
-          {/* Card header */}
           <div className="px-4 py-3 bg-accent/5 border-b border-accent/10 flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-accent" />
             <span className="font-mono text-xs text-accent uppercase tracking-widest">
@@ -110,24 +106,30 @@ export default function SuccessPage() {
             </span>
           </div>
 
-          {/* Card rows */}
           <div className="divide-y divide-border">
             {[
-              { label: 'Student ID', value: studentId ?? '—' },
-              { label: 'Pages uploaded', value: `${pageCount} page${pageCount === 1 ? '' : 's'}` },
-              { label: 'Upload ID', value: uploadId ? uploadId.slice(0, 16) + '…' : '—' },
+              { label: 'Student ID', value: studentId ?? '-' },
+              { label: 'Student', value: session?.student.name ?? '-' },
+              { label: 'Exam', value: session?.exam.name ?? '-' },
+              { label: 'PDF file', value: uploadReceipt?.fileName ?? session?.upload.fileName ?? '-' },
+              {
+                label: 'File size',
+                value: uploadReceipt?.fileSizeBytes
+                  ? `${(uploadReceipt.fileSizeBytes / 1024 / 1024).toFixed(2)} MB`
+                  : '-',
+              },
+              { label: 'Upload ID', value: uploadId ? `${uploadId.slice(0, 16)}...` : '-' },
               { label: 'Time', value: `${timeStr}` },
               { label: 'Date', value: dateStr },
             ].map(({ label, value }) => (
-              <div key={label} className="flex items-center justify-between px-4 py-3">
+              <div key={label} className="flex items-center justify-between px-4 py-3 gap-3">
                 <span className="text-text-secondary text-sm">{label}</span>
-                <span className="font-mono text-text-primary text-sm">{value}</span>
+                <span className="font-mono text-text-primary text-sm text-right break-all">{value}</span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* ── Encryption note ──────────────────────────────────────────────── */}
         <div
           className="mt-4 flex items-center gap-2 animate-fade-up"
           style={{ animationDelay: '620ms' }}
@@ -136,19 +138,18 @@ export default function SuccessPage() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
           </svg>
           <p className="text-text-muted text-xs font-mono">
-            Encrypted and stored securely on AWS S3
+            Verified against the exam upload session token
           </p>
         </div>
       </div>
 
-      {/* ── Bottom ───────────────────────────────────────────────────────────── */}
       <div
         className="w-full pb-safe-bottom pb-8 pt-6 animate-fade-up"
         style={{ animationDelay: '720ms' }}
       >
         <div className="text-center">
           <p className="text-text-muted text-xs font-mono">
-            AI Proctor · Exam Management System
+            AI Proctor - Exam Management System
           </p>
         </div>
       </div>

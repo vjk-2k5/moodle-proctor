@@ -1,9 +1,13 @@
 import fp from 'fastify-plugin';
 import { FastifyInstance } from 'fastify';
+import crypto from 'crypto';
+import fs from 'fs/promises';
+import path from 'path';
 import {
   authMiddleware,
   requireStudent
 } from '../../middleware/auth.middleware';
+import config from '../../config';
 import {
   buildManualStudent,
   getLatestManualAttempt,
@@ -12,6 +16,7 @@ import {
 import {
   createScanSession,
   getScanSession,
+  markScanSessionUploaded,
   serializeScanSession
 } from './scan-session.store';
 
@@ -21,6 +26,11 @@ const DEFAULT_UPLOAD_WINDOW_MINUTES = Math.max(
 );
 const MOBILE_SCAN_BASE_URL =
   process.env.MOBILE_SCAN_BASE_URL || 'http://localhost:3000';
+const ANSWER_SHEET_PDF_DIR = path.resolve(
+  process.cwd(),
+  config.upload.dir,
+  'answer-sheet-pdfs'
+);
 
 function normalizeBaseUrl(rawUrl: string): string {
   return rawUrl.endsWith('/') ? rawUrl.slice(0, -1) : rawUrl;
@@ -45,6 +55,18 @@ function buildStudentName(row: {
     .trim();
 
   return fullName || String(row.username || row.email || 'Student');
+}
+
+function sanitizeFileName(fileName: string): string {
+  const baseName = path.basename(String(fileName || 'answer-sheet.pdf'));
+  const normalized = baseName.replace(/[^a-zA-Z0-9._-]+/g, '_');
+  return normalized.toLowerCase().endsWith('.pdf')
+    ? normalized
+    : `${normalized}.pdf`;
+}
+
+function isPdfBuffer(buffer: Buffer): boolean {
+  return buffer.subarray(0, 5).toString('utf8') === '%PDF-';
 }
 
 export default fp(
@@ -89,15 +111,15 @@ export default fp(
           if (manualAttemptPayload.attempt.status !== 'submitted') {
             return reply.code(409).send({
               success: false,
-              error: 'Answer sheet upload is only available after the exam is submitted'
+              error:
+                'Answer sheet upload is only available after the exam is submitted'
             });
           }
 
-          const pendingToken = 'pending-manual-token';
           const session = createScanSession({
             uploadWindowMinutes,
             source,
-            mobileEntryUrl: buildMobileEntryUrl(pendingToken),
+            mobileEntryUrl: buildMobileEntryUrl('pending-manual-token'),
             student: {
               userId: 900001,
               studentId: manualStudent.id,
@@ -113,7 +135,9 @@ export default fp(
               id: manualAttemptPayload.attempt.id,
               status: manualAttemptPayload.attempt.status,
               submittedAt: manualAttemptPayload.attempt.submittedAt
-                ? new Date(manualAttemptPayload.attempt.submittedAt).toISOString()
+                ? new Date(
+                    manualAttemptPayload.attempt.submittedAt
+                  ).toISOString()
                 : null,
               submissionReason: manualAttemptPayload.attempt.submissionReason,
               violationCount: manualAttemptPayload.attempt.violationCount
@@ -188,7 +212,8 @@ export default fp(
         if (row.attemptStatus !== 'submitted') {
           return reply.code(409).send({
             success: false,
-            error: 'Answer sheet upload is only available after the exam is submitted'
+            error:
+              'Answer sheet upload is only available after the exam is submitted'
           });
         }
 
@@ -259,6 +284,136 @@ export default fp(
         return reply.send({
           success: true,
           data: serializeScanSession(session)
+        });
+      }
+    });
+
+    fastify.post('/api/scan/sessions/:token/pdf', {
+      bodyLimit: Math.max(config.upload.maxFileSize * 2, 4 * 1024 * 1024),
+      schema: {
+        params: {
+          type: 'object',
+          properties: {
+            token: { type: 'string' }
+          },
+          required: ['token']
+        },
+        body: {
+          type: 'object',
+          properties: {
+            fileName: { type: 'string' },
+            mimeType: { type: 'string' },
+            fileBase64: { type: 'string' }
+          },
+          required: ['fileName', 'mimeType', 'fileBase64']
+        }
+      },
+      handler: async (request, reply) => {
+        const { token } = request.params as { token: string };
+        const body = request.body as {
+          fileName: string;
+          mimeType: string;
+          fileBase64: string;
+        };
+        const session = getScanSession(token);
+
+        if (!session) {
+          return reply.code(404).send({
+            success: false,
+            error: 'Scan session not found'
+          });
+        }
+
+        if (session.status === 'expired') {
+          return reply.code(410).send({
+            success: false,
+            error: 'Scan session has expired',
+            data: serializeScanSession(session)
+          });
+        }
+
+        if (session.upload.status === 'uploaded') {
+          return reply.code(409).send({
+            success: false,
+            error:
+              'An answer sheet PDF has already been uploaded for this session',
+            data: serializeScanSession(session)
+          });
+        }
+
+        if (String(body.mimeType || '').toLowerCase() !== 'application/pdf') {
+          return reply.code(400).send({
+            success: false,
+            error: 'Only PDF uploads are supported for this session'
+          });
+        }
+
+        let fileBuffer: Buffer;
+        try {
+          fileBuffer = Buffer.from(String(body.fileBase64 || ''), 'base64');
+        } catch (_error) {
+          return reply.code(400).send({
+            success: false,
+            error: 'The uploaded PDF could not be decoded'
+          });
+        }
+
+        if (!fileBuffer.length) {
+          return reply.code(400).send({
+            success: false,
+            error: 'The uploaded PDF is empty'
+          });
+        }
+
+        if (fileBuffer.length > config.upload.maxFileSize) {
+          return reply.code(413).send({
+            success: false,
+            error: `The uploaded PDF exceeds the ${Math.round(
+              config.upload.maxFileSize / (1024 * 1024)
+            )} MB limit`
+          });
+        }
+
+        if (!isPdfBuffer(fileBuffer)) {
+          return reply.code(400).send({
+            success: false,
+            error: 'The uploaded file is not a valid PDF'
+          });
+        }
+
+        const receiptId = `receipt_${crypto.randomBytes(10).toString('hex')}`;
+        const uploadedAt = new Date().toISOString();
+        const safeFileName = sanitizeFileName(body.fileName);
+        const studentDir = path.join(
+          ANSWER_SHEET_PDF_DIR,
+          session.student.studentId
+        );
+        const storedFileName = `${session.attempt.id || 'attempt'}_${token.slice(
+          0,
+          12
+        )}_${safeFileName}`;
+        const storedPath = path.join(studentDir, storedFileName);
+
+        await fs.mkdir(studentDir, { recursive: true });
+        await fs.writeFile(storedPath, fileBuffer);
+
+        const updatedSession = markScanSessionUploaded(token, {
+          receiptId,
+          fileName: safeFileName,
+          fileSizeBytes: fileBuffer.length,
+          storedPath,
+          uploadedAt
+        });
+
+        return reply.send({
+          success: true,
+          data: updatedSession ? serializeScanSession(updatedSession) : null,
+          receipt: {
+            id: receiptId,
+            uploadedAt,
+            fileName: safeFileName,
+            fileSizeBytes: fileBuffer.length
+          }
         });
       }
     });

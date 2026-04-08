@@ -39,6 +39,8 @@ export interface ScanUploadSessionRecord {
     uploadedAt: string | null;
     fileName: string | null;
     fileSizeBytes: number | null;
+    receiptId: string | null;
+    storedPath: string | null;
   };
 }
 
@@ -61,8 +63,7 @@ export function createScanSession(
   input: CreateScanSessionInput
 ): ScanUploadSessionRecord {
   const createdAt = Date.now();
-  const expiresAt =
-    createdAt + input.uploadWindowMinutes * 60 * 1000;
+  const expiresAt = createdAt + input.uploadWindowMinutes * 60 * 1000;
   const token = createToken();
 
   const session: ScanUploadSessionRecord = {
@@ -82,7 +83,9 @@ export function createScanSession(
       format: 'pdf',
       uploadedAt: null,
       fileName: null,
-      fileSizeBytes: null
+      fileSizeBytes: null,
+      receiptId: null,
+      storedPath: null
     }
   };
 
@@ -102,6 +105,35 @@ export function getScanSession(
   if (Date.now() >= session.expiresAt) {
     session.status = 'expired';
   }
+
+  return session;
+}
+
+export function markScanSessionUploaded(
+  token: string,
+  upload: {
+    receiptId: string;
+    fileName: string;
+    fileSizeBytes: number;
+    storedPath: string;
+    uploadedAt?: string;
+  }
+): ScanUploadSessionRecord | null {
+  const session = getScanSession(token);
+
+  if (!session) {
+    return null;
+  }
+
+  const uploadedAt = upload.uploadedAt || new Date().toISOString();
+
+  session.status = 'uploaded';
+  session.upload.status = 'uploaded';
+  session.upload.uploadedAt = uploadedAt;
+  session.upload.fileName = upload.fileName;
+  session.upload.fileSizeBytes = upload.fileSizeBytes;
+  session.upload.receiptId = upload.receiptId;
+  session.upload.storedPath = upload.storedPath;
 
   return session;
 }
