@@ -34,10 +34,6 @@ export default fp(async (fastify: FastifyInstance) => {
   fastify.post('/api/lti/launch', {
     config: {
       public: true // Bypass auth middleware
-    },
-    // Accept both form-urlencoded (from Moodle) and JSON
-    constraints: {
-      // Don't constrain by content type
     }
   }, async (request, reply): Promise<any> => {
     try {

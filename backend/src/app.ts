@@ -7,6 +7,7 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import jwt from '@fastify/jwt'
 import cookie from '@fastify/cookie'
+import { parse as parseQueryString } from 'querystring'
 import config from './config'
 import logger from './config/logger'
 
@@ -91,6 +92,16 @@ export async function createApp () {
   // Cookie support
   await app.register(cookie, {
     secret: config.jwt.secret
+  })
+
+  // Form body parser (for LTI launch requests)
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (req, body, done) => {
+    try {
+      const parsed = parseQueryString(body.toString())
+      done(null, parsed)
+    } catch (err) {
+      done(err as Error)
+    }
   })
 
   // CSRF protection (for state-changing operations)
