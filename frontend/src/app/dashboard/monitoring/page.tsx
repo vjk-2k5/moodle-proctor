@@ -432,6 +432,8 @@ export default function LiveMonitoringPage() {
                       max={100}
                       value={roomCapacityDraft}
                       onChange={(event) => setRoomCapacityDraft(Number(event.target.value) || 1)}
+                      aria-label="Student limit"
+                      title="Maximum students allowed in this room"
                       className="w-20 rounded-[10px] border border-slate-200 px-3 py-2 text-sm text-slate-700"
                     />
                     <button
@@ -445,7 +447,7 @@ export default function LiveMonitoringPage() {
                       ) : (
                         <FiSave className="h-4 w-4" />
                       )}
-                      Save seats
+                      Save limit
                     </button>
                   </div>
                   <button type="button" onClick={() => handleCopy(currentRoom.roomCode, "code")} className="btn-secondary">
