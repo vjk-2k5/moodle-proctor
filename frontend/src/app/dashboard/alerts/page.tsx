@@ -66,10 +66,10 @@ export default function AlertsPage() {
           <div className="max-w-3xl">
             <span className="eyebrow-pill">Review focus</span>
             <h2 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950">
-              Work the queue from highest signal first
+              Review the highest-risk queue first
             </h2>
             <p className="section-copy mt-3">
-              Alerts are now tied to one active room so the queue matches the live monitoring wall.
+              Alerts are tied to one live room at a time so the queue matches the monitoring view.
             </p>
           </div>
 
@@ -94,8 +94,8 @@ export default function AlertsPage() {
       <section className="surface-panel section-card">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-slate-950">Room focus</h3>
-            <p className="mt-1 text-sm text-slate-600">Choose which room this alert queue should follow.</p>
+            <h3 className="text-lg font-semibold text-slate-950">Selected room</h3>
+            <p className="mt-1 text-sm text-slate-600">Choose which live room this alert queue should follow.</p>
           </div>
 
           {isLoading ? (

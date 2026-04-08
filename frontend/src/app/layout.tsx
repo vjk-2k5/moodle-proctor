@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "ProctorVision - Exam Operations Dashboard",
-  description: "Exam operations dashboard for online proctoring, monitoring, and reporting."
+  description: "Teacher dashboard for running exams, monitoring students, and reviewing submissions."
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

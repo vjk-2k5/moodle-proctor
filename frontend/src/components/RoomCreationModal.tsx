@@ -163,12 +163,12 @@ export const RoomCreationModal = ({ isOpen, onClose, onRoomCreated }: Props) => 
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div>
             <h2 className="text-xl font-semibold text-slate-950">
-              {createdRoom ? "Room created" : "Create room"}
+              {createdRoom ? "Room ready" : "Create room"}
             </h2>
             <p className="mt-1 text-sm text-slate-600">
               {createdRoom
-                ? "Copy the student link or room code and continue to live monitoring."
-                : "Choose an exam and create one live monitoring room for it."}
+                ? "Share the student link or room code, then continue monitoring."
+                : "Choose an exam and create a live room for it."}
             </p>
           </div>
           <button
@@ -191,7 +191,7 @@ export const RoomCreationModal = ({ isOpen, onClose, onRoomCreated }: Props) => 
 
               <div className="grid gap-4">
                 <div className="rounded-[16px] border border-slate-200 bg-slate-50 px-4 py-4">
-                  <p className="text-sm font-semibold text-slate-900">Student Moodle URL</p>
+                  <p className="text-sm font-semibold text-slate-900">Student launch link</p>
                   <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                     <input readOnly value={createdRoom.launchLink} className="input-field flex-1 text-sm" />
                     <button
@@ -207,7 +207,7 @@ export const RoomCreationModal = ({ isOpen, onClose, onRoomCreated }: Props) => 
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="rounded-[16px] border border-slate-200 bg-slate-50 px-4 py-4">
-                    <p className="text-sm font-semibold text-slate-900">Desktop link</p>
+                    <p className="text-sm font-semibold text-slate-900">Desktop invite link</p>
                     <div className="mt-3 flex gap-2">
                       <input readOnly value={createdRoom.inviteLink} className="input-field flex-1 text-sm" />
                       <button
@@ -250,7 +250,7 @@ export const RoomCreationModal = ({ isOpen, onClose, onRoomCreated }: Props) => 
                   type="text"
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="Search exam or course"
+                  placeholder="Search by exam or course"
                   className="input-field pl-10"
                 />
               </label>

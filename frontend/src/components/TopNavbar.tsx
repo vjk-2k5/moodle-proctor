@@ -8,23 +8,23 @@ import { useTeacherStats } from "@/hooks/useTeacherData";
 const pageMeta: Record<string, { title: string; subtitle: string }> = {
   "/dashboard": {
     title: "Monitoring",
-    subtitle: "Create a room, share the student link, and watch the live session."
+    subtitle: "Create a room, share the student link, and follow the live exam session."
   },
   "/dashboard/monitoring": {
     title: "Monitoring",
-    subtitle: "Create a room, share the student link, and watch the live session."
+    subtitle: "Create a room, share the student link, and follow the live exam session."
   },
   "/dashboard/exams": {
     title: "Exams",
-    subtitle: "Create exams, upload question papers, and adjust proctoring settings."
+    subtitle: "Create exams, upload question papers, and manage proctoring settings."
   },
   "/dashboard/alerts": {
     title: "Alerts",
-    subtitle: "Review flagged attempts and follow up on higher-risk sessions."
+    subtitle: "Review flagged activity and focus on the rooms that need attention first."
   },
   "/dashboard/answer-sheets": {
     title: "Answer Sheets",
-    subtitle: "Review uploaded scanned PDFs and follow them back to the right student and exam."
+    subtitle: "Review uploaded PDFs and match each submission to the correct student and exam."
   },
   "/dashboard/students": {
     title: "Students",
@@ -69,11 +69,11 @@ export const TopNavbar = () => {
           </span>
           <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-slate-700">
             <FiActivity className="h-4 w-4" />
-            {isLoading ? "Loading summary" : `${stats?.students.active ?? 0} live students`}
+            {isLoading ? "Loading summary" : `${stats?.students.active ?? 0} active students`}
           </span>
           <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-slate-700">
             <FiClock className="h-4 w-4" />
-            {generatedAt ? `Updated ${generatedAt}` : "Waiting for data"}
+            {generatedAt ? `Updated ${generatedAt}` : "Waiting for updates"}
           </span>
         </div>
       </div>

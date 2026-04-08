@@ -93,7 +93,7 @@ function LoginPageContent() {
         <section className="w-full rounded-[24px] border border-slate-200 bg-white px-6 py-7 shadow-sm sm:px-8 sm:py-8">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
-              Teacher login
+              Teacher sign-in
             </p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
               Sign in
@@ -140,7 +140,7 @@ function LoginPageContent() {
             </div>
 
             <div className="rounded-[16px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              After sign-in, you will be taken straight to the teacher monitoring dashboard.
+              After sign-in, you will go straight to the monitoring dashboard.
             </div>
 
             <button
@@ -155,7 +155,7 @@ function LoginPageContent() {
                 </>
               ) : (
                 <>
-                  Enter dashboard
+                  Open dashboard
                   <FiArrowRight className="h-4 w-4" />
                 </>
               )}

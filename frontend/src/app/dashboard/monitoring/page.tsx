@@ -367,7 +367,7 @@ export default function LiveMonitoringPage() {
           <div>
             <h2 className="text-xl font-semibold text-slate-950">Monitoring room</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Create a room, share the student link, and click a student to view warnings.
+              Create a room, share the student link, and select a student to review warnings.
             </p>
           </div>
 
@@ -421,7 +421,7 @@ export default function LiveMonitoringPage() {
                 <div className="flex gap-2">
                   <input readOnly value={desktopInviteLink} className="input-field flex-1 text-sm" />
                   <button type="button" onClick={() => handleCopy(desktopInviteLink, "invite")} className="btn-secondary">
-                    {copiedField === "invite" ? "Copied" : "Copy desktop"}
+                    {copiedField === "invite" ? "Copied" : "Copy desktop link"}
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-2 pt-1">
@@ -433,7 +433,7 @@ export default function LiveMonitoringPage() {
                       value={roomCapacityDraft}
                       onChange={(event) => setRoomCapacityDraft(Number(event.target.value) || 1)}
                       aria-label="Student limit"
-                      title="Maximum students allowed in this room"
+                      title="Maximum number of students allowed in this room"
                       className="w-20 rounded-[10px] border border-slate-200 px-3 py-2 text-sm text-slate-700"
                     />
                     <button
@@ -461,7 +461,7 @@ export default function LiveMonitoringPage() {
                     className="inline-flex items-center gap-2 rounded-[12px] border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700"
                   >
                     {isClosingRoom ? <FiLoader className="h-4 w-4 animate-spin" /> : <FiSlash className="h-4 w-4" />}
-                    End room
+                    Close room
                   </button>
                   <button
                     type="button"
@@ -470,7 +470,7 @@ export default function LiveMonitoringPage() {
                     className="inline-flex items-center gap-2 rounded-[12px] border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
                   >
                     {isDeletingRoom ? <FiLoader className="h-4 w-4 animate-spin" /> : <FiTrash2 className="h-4 w-4" />}
-                    Delete
+                    Delete room
                   </button>
                 </div>
               </div>
@@ -496,8 +496,8 @@ export default function LiveMonitoringPage() {
             <div className="border-b border-slate-200 px-5 py-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-base font-semibold text-slate-950">Active rooms</h3>
-                  <p className="mt-1 text-sm text-slate-600">Switch between live rooms here.</p>
+                  <h3 className="text-base font-semibold text-slate-950">Live rooms</h3>
+                  <p className="mt-1 text-sm text-slate-600">Switch between active rooms here.</p>
                 </div>
                 <button type="button" onClick={() => refetchRooms()} className="btn-secondary" disabled={roomsLoading}>
                   {roomsLoading ? <FiLoader className="h-4 w-4 animate-spin" /> : "Refresh"}
@@ -540,7 +540,7 @@ export default function LiveMonitoringPage() {
           <section className="rounded-[20px] border border-slate-200 bg-white">
             <div className="border-b border-slate-200 px-4 py-4">
               <h3 className="text-base font-semibold text-slate-950">Students needing attention</h3>
-              <p className="mt-1 text-sm text-slate-600">Highest warning counts in this room.</p>
+              <p className="mt-1 text-sm text-slate-600">Students with the highest warning counts in this room.</p>
             </div>
 
             <div className="max-h-[420px] overflow-y-auto px-4 py-4">
@@ -591,7 +591,7 @@ export default function LiveMonitoringPage() {
           <section className="rounded-[20px] border border-slate-200 bg-white">
             <div className="border-b border-slate-200 px-4 py-4">
               <h3 className="text-base font-semibold text-slate-950">Student details</h3>
-              <p className="mt-1 text-sm text-slate-600">Warnings and status for the selected student.</p>
+              <p className="mt-1 text-sm text-slate-600">Review warnings and status for the selected student.</p>
             </div>
 
             <div className="px-4 py-4">
@@ -641,7 +641,7 @@ export default function LiveMonitoringPage() {
                   <div className="rounded-[14px] border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
                     {selectedMonitoredStudent.warningCount > 0
                       ? `${selectedMonitoredStudent.warningCount} proctoring warning${selectedMonitoredStudent.warningCount === 1 ? "" : "s"} recorded in this room.`
-                      : "No warnings recorded for this student in this room yet."}
+                      : "No warnings have been recorded for this student in this room yet."}
                   </div>
 
                   <div>
@@ -653,7 +653,7 @@ export default function LiveMonitoringPage() {
                       </div>
                     ) : selectedViolations.length === 0 ? (
                       <div className="mt-2 rounded-[14px] border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
-                        No detailed warning entries for this attempt.
+                        No detailed warning entries were found for this attempt.
                       </div>
                     ) : (
                       <div className="mt-2 space-y-2">
@@ -668,7 +668,7 @@ export default function LiveMonitoringPage() {
                                   {violation.violationType.replace(/_/g, " ")}
                                 </p>
                                 <p className="mt-1 text-sm text-slate-600">
-                                  {violation.detail || "No extra detail recorded."}
+                                  {violation.detail || "No extra detail was recorded."}
                                 </p>
                               </div>
                               <span className="text-xs text-slate-500">
@@ -683,7 +683,7 @@ export default function LiveMonitoringPage() {
                 </div>
               ) : (
                 <div className="text-sm text-slate-500">
-                  Click a student tile to see details here.
+                  Select a student tile to see details here.
                 </div>
               )}
             </div>

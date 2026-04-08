@@ -135,8 +135,8 @@ export const AlertPanel = ({ roomId, roomLabel }: Props) => {
             </h2>
             <p className="section-copy mt-3 max-w-2xl">
               {roomLabel
-                ? `Warnings for ${roomLabel} surface here first so teachers can triage one room at a time.`
-                : "Select an active room to see its warning queue."}
+                ? `Warnings for ${roomLabel} appear here first so you can review one room at a time.`
+                : "Select a live room to see its warning queue."}
             </p>
           </div>
 
@@ -209,13 +209,13 @@ export const AlertPanel = ({ roomId, roomLabel }: Props) => {
 
         {!error && roomId && !isLoading && attentionQueue.length === 0 && (
           <div className="empty-state">
-            No room warnings are waiting for review right now.
+            No warnings are waiting for review right now.
           </div>
         )}
 
         {roomId && isLoading && (
           <div className="empty-state">
-            Loading incident queue...
+            Loading alert queue...
           </div>
         )}
       </div>

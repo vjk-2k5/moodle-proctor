@@ -129,7 +129,7 @@ export default function ExamsPage() {
           <div>
             <h2 className="text-xl font-semibold text-slate-950">Exam setup</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Create the exam first, then open a live room for it when you are ready to run it.
+              Create the exam here, then open a live room when you are ready to run it.
             </p>
           </div>
           <button type="button" onClick={openCreate} className="btn-primary">
@@ -163,7 +163,7 @@ export default function ExamsPage() {
           <div className="col-span-full rounded-[20px] border border-slate-200 bg-white px-5 py-10 text-center">
             <h3 className="text-lg font-semibold text-slate-950">No exams yet</h3>
             <p className="mt-2 text-sm text-slate-600">
-              Create the exam here, then open a room from this page or from Monitoring.
+              Create your first exam here, then open a room from this page or from Monitoring.
             </p>
             <button type="button" onClick={openCreate} className="btn-primary mt-5">
               <FiPlus className="h-4 w-4" />
@@ -196,7 +196,7 @@ export default function ExamsPage() {
                     {isCreatingRoomForExamId === exam.id ? (
                       <>
                         <FiLoader className="h-4 w-4 animate-spin" />
-                        Opening...
+                        Opening room...
                       </>
                     ) : (
                       <>
@@ -227,7 +227,7 @@ export default function ExamsPage() {
                   {exam.durationMinutes} min
                 </span>
                 <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">
-                  Alert limit {exam.maxWarnings}
+                  Warning limit {exam.maxWarnings}
                 </span>
                 {featurePills(exam).map((item) => (
                   <span
@@ -255,7 +255,7 @@ export default function ExamsPage() {
                     Questions
                   </p>
                   <p className="mt-2 text-sm text-slate-900">
-                    {exam.questions.length} question{exam.questions.length === 1 ? "" : "s"} configured
+                    {exam.questions.length} question{exam.questions.length === 1 ? "" : "s"} added
                   </p>
                 </div>
                 <div className="rounded-[16px] border border-slate-200 bg-slate-50 px-4 py-4">

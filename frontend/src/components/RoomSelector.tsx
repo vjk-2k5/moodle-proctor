@@ -24,7 +24,7 @@ interface Props {
 
 function formatRoomTime(value: string | null) {
   if (!value) {
-    return "Waiting for activation";
+    return "Waiting to start";
   }
 
   return new Intl.DateTimeFormat("en-US", {
@@ -117,10 +117,10 @@ export const RoomSelector = ({
           <div>
             <span className="eyebrow-pill">Room switcher</span>
             <h2 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950">
-              Move between live rooms quickly
+              Switch between live rooms
             </h2>
             <p className="section-copy mt-2 max-w-2xl">
-              Search by room code, exam, or course and switch the monitoring wall without leaving this workspace.
+              Search by room code, exam, or course and switch rooms without leaving this workspace.
             </p>
           </div>
           <button
@@ -141,13 +141,13 @@ export const RoomSelector = ({
                 type="text"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search active rooms"
+                placeholder="Search live rooms"
                 className="input-field pl-11"
               />
             </label>
 
             <div className="flex items-center gap-2">
-              <span className="info-chip">{filteredRooms.length} visible rooms</span>
+              <span className="info-chip">{filteredRooms.length} rooms shown</span>
               <button
                 type="button"
                 onClick={() => refetch()}
@@ -163,16 +163,16 @@ export const RoomSelector = ({
           {isLoading ? (
             <div className="empty-state flex items-center justify-center gap-3">
               <FiLoader className="h-5 w-5 animate-spin text-emerald-700" />
-              <span>Loading active rooms...</span>
+              <span>Loading live rooms...</span>
             </div>
           ) : error ? (
             <div className="rounded-[24px] border border-red-200 bg-red-50 px-4 py-4 text-sm font-medium text-red-700">
               {error.message}
             </div>
           ) : rooms.length === 0 ? (
-            <div className="empty-state">No active rooms found yet. Create a room to get started.</div>
+            <div className="empty-state">No live rooms yet. Create a room to get started.</div>
           ) : filteredRooms.length === 0 ? (
-            <div className="empty-state">No active rooms match that search yet.</div>
+            <div className="empty-state">No rooms match that search.</div>
           ) : (
             <div className="space-y-3">
               {filteredRooms.map((room) => {
