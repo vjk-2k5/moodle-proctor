@@ -1,6 +1,7 @@
 let uploadSession = null
 let countdownTimerId = null
 let refreshTimerId = null
+const REFRESH_INTERVAL_MS = 3000
 
 function getLocalUploadSession () {
   try {
@@ -28,6 +29,15 @@ function storeLocalUploadSession (session) {
   } catch (error) {
     console.error('Failed to persist local upload session fallback:', error)
   }
+}
+
+function normalizeBackendApiBaseUrl (value) {
+  const rawValue = String(value || '').trim()
+  if (!rawValue) {
+    return ''
+  }
+
+  return rawValue.endsWith('/') ? rawValue.slice(0, -1) : rawValue
 }
 
 function escapeHtml (value) {
@@ -176,9 +186,12 @@ function setStatusBadge (status) {
 }
 
 function renderUploadSession (session) {
-  uploadSession = session
-  storeLocalUploadSession(session)
-  setStatusBadge(session.status)
+  uploadSession = {
+    ...(uploadSession || {}),
+    ...(session || {})
+  }
+  storeLocalUploadSession(uploadSession)
+  setStatusBadge(uploadSession.status)
 
   const mobileLink = document.getElementById('uploadSessionMobileLink')
   const student = document.getElementById('uploadSessionStudent')
@@ -193,67 +206,67 @@ function renderUploadSession (session) {
   const fileName = document.getElementById('uploadSessionFileName')
   const stateMessage = document.getElementById('uploadSessionStateMessage')
 
-  updateQrPresentation(session)
+  updateQrPresentation(uploadSession)
 
   if (mobileLink) {
-    mobileLink.href = session.mobileEntryUrl || '#'
-    mobileLink.textContent = session.mobileEntryUrl || 'Mobile upload link unavailable'
+    mobileLink.href = uploadSession.mobileEntryUrl || '#'
+    mobileLink.textContent = uploadSession.mobileEntryUrl || 'Mobile upload link unavailable'
   }
 
   if (student) {
-    student.innerHTML = `${escapeHtml(session.student?.name || 'Student')}<br><span>${escapeHtml(session.student?.email || '')}</span>`
+    student.innerHTML = `${escapeHtml(uploadSession.student?.name || 'Student')}<br><span>${escapeHtml(uploadSession.student?.email || '')}</span>`
   }
 
   if (exam) {
-    const examName = escapeHtml(session.exam?.name || 'Exam')
-    const courseName = escapeHtml(session.exam?.courseName || '')
+    const examName = escapeHtml(uploadSession.exam?.name || 'Exam')
+    const courseName = escapeHtml(uploadSession.exam?.courseName || '')
     exam.innerHTML = courseName ? `${examName}<br><span>${courseName}</span>` : examName
   }
 
   if (attempt) {
-    const attemptId = session.attempt?.id ? `#${escapeHtml(session.attempt.id)}` : 'Not available'
-    const submittedAt = formatDateTime(session.attempt?.submittedAt)
+    const attemptId = uploadSession.attempt?.id ? `#${escapeHtml(uploadSession.attempt.id)}` : 'Not available'
+    const submittedAt = formatDateTime(uploadSession.attempt?.submittedAt)
     attempt.innerHTML = `${attemptId}<br><span>${escapeHtml(submittedAt)}</span>`
   }
 
   if (token) {
-    token.textContent = session.token || 'Unavailable'
+    token.textContent = uploadSession.token || 'Unavailable'
   }
 
   if (windowNode) {
-    windowNode.textContent = `${session.uploadWindowMinutes || 0} minutes`
+    windowNode.textContent = `${uploadSession.uploadWindowMinutes || 0} minutes`
   }
 
   if (acceptedFiles) {
-    acceptedFiles.textContent = (session.acceptedFileTypes || ['application/pdf']).join(', ')
+    acceptedFiles.textContent = (uploadSession.acceptedFileTypes || ['application/pdf']).join(', ')
   }
 
   if (countdown) {
     countdown.textContent =
-      session.status === 'uploaded' ? 'Completed' : formatCountdown(session.expiresAt)
+      uploadSession.status === 'uploaded' ? 'Completed' : formatCountdown(uploadSession.expiresAt)
   }
 
   if (uploadedAt) {
-    uploadedAt.textContent = formatDateTime(session.upload?.uploadedAt)
+    uploadedAt.textContent = formatDateTime(uploadSession.upload?.uploadedAt)
   }
 
   if (receipt) {
-    receipt.textContent = session.upload?.receiptId || 'Pending'
+    receipt.textContent = uploadSession.upload?.receiptId || 'Pending'
   }
 
   if (fileName) {
-    if (session.upload?.fileName) {
-      const size = session.upload?.fileSizeBytes
+    if (uploadSession.upload?.fileName) {
+      const size = uploadSession.upload?.fileSizeBytes
       fileName.textContent = size
-        ? `${session.upload.fileName} (${Math.round(size / 1024)} KB)`
-        : session.upload.fileName
+        ? `${uploadSession.upload.fileName} (${Math.round(size / 1024)} KB)`
+        : uploadSession.upload.fileName
     } else {
       fileName.textContent = 'Pending PDF upload'
     }
   }
 
   if (stateMessage) {
-    stateMessage.textContent = formatUploadSummary(session)
+    stateMessage.textContent = formatUploadSummary(uploadSession)
   }
 
   if (countdownTimerId) {
@@ -303,13 +316,42 @@ async function refreshUploadSession () {
     return
   }
 
-  if (!window.electronAPI?.refreshScanSession) {
-    renderUploadSession(uploadSession)
-    return
-  }
-
   try {
-    const latestSession = await window.electronAPI.refreshScanSession(uploadSession.token)
+    let latestSession = null
+
+    if (window.electronAPI?.refreshScanSession) {
+      latestSession = await window.electronAPI.refreshScanSession(uploadSession.token)
+    }
+
+    if (!latestSession) {
+      const backendApiBaseUrl = normalizeBackendApiBaseUrl(uploadSession.backendApiBaseUrl)
+
+      if (backendApiBaseUrl) {
+        const response = await fetch(
+          `${backendApiBaseUrl}/api/scan/sessions/${encodeURIComponent(uploadSession.token)}`,
+          {
+            method: 'GET',
+            cache: 'no-store'
+          }
+        )
+
+        const payload = await response.json().catch(() => ({}))
+
+        if (response.ok && payload?.data) {
+          latestSession = {
+            ...(uploadSession || {}),
+            ...(payload.data || {}),
+            backendApiBaseUrl
+          }
+        } else if (payload?.data) {
+          latestSession = {
+            ...(uploadSession || {}),
+            ...(payload.data || {}),
+            backendApiBaseUrl
+          }
+        }
+      }
+    }
 
     if (!latestSession) {
       renderMissingSession()
@@ -362,7 +404,7 @@ async function initializeUploadSessionPage () {
     if (!refreshTimerId) {
       refreshTimerId = window.setInterval(() => {
         refreshUploadSession()
-      }, 10000)
+      }, REFRESH_INTERVAL_MS)
     }
   } catch (error) {
     console.error('Failed to load upload session:', error)

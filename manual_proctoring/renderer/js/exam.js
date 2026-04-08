@@ -1619,9 +1619,15 @@ async function createAnswerSheetUploadSession (submissionReason = 'manual_submit
       }
     }
 
+    const session = data.data || data.session || null
+
+    if (session && typeof session === 'object') {
+      session.backendApiBaseUrl = API_BASE_URL
+    }
+
     return {
-      session: data.data || data.session || null,
-      error: data.data || data.session ? null : 'The server reported success but did not return a scan session.',
+      session,
+      error: session ? null : 'The server reported success but did not return a scan session.',
       diagnostics: nextDiagnostics
     }
   } catch (error) {
