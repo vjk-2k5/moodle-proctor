@@ -10,6 +10,51 @@ import {
   type TeacherExamQuestionPaperUpload,
 } from "@/lib/backend";
 
+const QUESTION_TYPE_META: Record<
+  string,
+  {
+    label: string;
+    helper: string;
+    supportsOptions: boolean;
+    supportsAnswer: boolean;
+    answerLabel: string;
+    answerPlaceholder: string;
+  }
+> = {
+  short_answer: {
+    label: "Short answer",
+    helper: "Student types a short written answer.",
+    supportsOptions: false,
+    supportsAnswer: true,
+    answerLabel: "Expected answer",
+    answerPlaceholder: "Optional reference answer",
+  },
+  multiple_choice: {
+    label: "Multiple choice",
+    helper: "Add answer choices below. The first matching answer key can be used as reference.",
+    supportsOptions: true,
+    supportsAnswer: true,
+    answerLabel: "Correct option",
+    answerPlaceholder: "Type the correct option text",
+  },
+  essay: {
+    label: "Essay",
+    helper: "Long-form written response with no answer choices.",
+    supportsOptions: false,
+    supportsAnswer: true,
+    answerLabel: "Rubric note",
+    answerPlaceholder: "Optional rubric or expected points",
+  },
+  true_false: {
+    label: "True / False",
+    helper: "Students choose between True and False.",
+    supportsOptions: true,
+    supportsAnswer: true,
+    answerLabel: "Correct answer",
+    answerPlaceholder: "Select the correct answer",
+  },
+};
+
 interface ExamEditorModalProps {
   isOpen: boolean;
   exam?: TeacherExam | null;
@@ -59,6 +104,37 @@ function createEmptyQuestion(index: number): TeacherExamQuestion {
     marks: 1,
     options: [],
     answer: null,
+  };
+}
+
+function normalizeQuestionForType(
+  question: TeacherExamQuestion,
+  type: string
+): TeacherExamQuestion {
+  if (type === "true_false") {
+    const answer =
+      question.answer === "True" || question.answer === "False" ? question.answer : "True";
+
+    return {
+      ...question,
+      type,
+      options: ["True", "False"],
+      answer,
+    };
+  }
+
+  if (type === "multiple_choice") {
+    return {
+      ...question,
+      type,
+      options: question.options.length ? question.options : ["", ""],
+    };
+  }
+
+  return {
+    ...question,
+    type,
+    options: [],
   };
 }
 
@@ -120,13 +196,65 @@ export const ExamEditorModal = ({
     }));
   };
 
-  const handleQuestionOptionsChange = (index: number, value: string) => {
-    updateQuestion(index, {
-      options: value
-        .split("\n")
-        .map((item) => item.trim())
-        .filter(Boolean),
-    });
+  const updateQuestionType = (index: number, type: string) => {
+    setForm((current) => ({
+      ...current,
+      questions: current.questions.map((question, questionIndex) =>
+        questionIndex === index ? normalizeQuestionForType(question, type) : question
+      ),
+    }));
+  };
+
+  const updateQuestionOption = (index: number, optionIndex: number, value: string) => {
+    setForm((current) => ({
+      ...current,
+      questions: current.questions.map((question, questionIndex) => {
+        if (questionIndex !== index) {
+          return question;
+        }
+
+        const nextOptions = question.options.map((option, currentOptionIndex) =>
+          currentOptionIndex === optionIndex ? value : option
+        );
+
+        return {
+          ...question,
+          options: nextOptions,
+        };
+      }),
+    }));
+  };
+
+  const addQuestionOption = (index: number) => {
+    setForm((current) => ({
+      ...current,
+      questions: current.questions.map((question, questionIndex) =>
+        questionIndex === index
+          ? {
+              ...question,
+              options: [...question.options, ""],
+            }
+          : question
+      ),
+    }));
+  };
+
+  const removeQuestionOption = (index: number, optionIndex: number) => {
+    setForm((current) => ({
+      ...current,
+      questions: current.questions.map((question, questionIndex) => {
+        if (questionIndex !== index) {
+          return question;
+        }
+
+        const nextOptions = question.options.filter((_, currentOptionIndex) => currentOptionIndex !== optionIndex);
+
+        return {
+          ...question,
+          options: nextOptions.length ? nextOptions : ["", ""],
+        };
+      }),
+    }));
   };
 
   const handleUploadChange = async (file: File | null) => {
@@ -369,7 +497,11 @@ export const ExamEditorModal = ({
                 </div>
 
                 <div className="mt-4 space-y-3">
-                  {form.questions.map((question, index) => (
+                  {form.questions.map((question, index) => {
+                    const questionMeta =
+                      QUESTION_TYPE_META[question.type] || QUESTION_TYPE_META.short_answer;
+
+                    return (
                     <div key={question.id} className="rounded-[16px] border border-slate-200 bg-white px-4 py-4">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-semibold text-slate-900">Question {index + 1}</p>
@@ -391,7 +523,7 @@ export const ExamEditorModal = ({
                         </button>
                       </div>
 
-                      <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_140px_120px]">
+                      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_120px]">
                         <label className="block md:col-span-3">
                           <span className="text-sm font-medium text-slate-700">Prompt</span>
                           <textarea
@@ -405,7 +537,7 @@ export const ExamEditorModal = ({
                           <span className="text-sm font-medium text-slate-700">Type</span>
                           <select
                             value={question.type}
-                            onChange={(event) => updateQuestion(index, { type: event.target.value })}
+                            onChange={(event) => updateQuestionType(index, event.target.value)}
                             className="input-field mt-2"
                           >
                             <option value="short_answer">Short answer</option>
@@ -425,26 +557,79 @@ export const ExamEditorModal = ({
                           />
                         </label>
                         <label className="block">
-                          <span className="text-sm font-medium text-slate-700">Answer key</span>
-                          <input
-                            value={question.answer || ""}
-                            onChange={(event) => updateQuestion(index, { answer: event.target.value })}
-                            className="input-field mt-2"
-                            placeholder="Optional"
-                          />
+                          <span className="text-sm font-medium text-slate-700">{questionMeta.answerLabel}</span>
+                          {question.type === "true_false" ? (
+                            <select
+                              value={question.answer || "True"}
+                              onChange={(event) => updateQuestion(index, { answer: event.target.value })}
+                              className="input-field mt-2"
+                            >
+                              <option value="True">True</option>
+                              <option value="False">False</option>
+                            </select>
+                          ) : (
+                            <input
+                              value={question.answer || ""}
+                              onChange={(event) => updateQuestion(index, { answer: event.target.value })}
+                              className="input-field mt-2"
+                              placeholder={questionMeta.answerPlaceholder}
+                            />
+                          )}
                         </label>
-                        <label className="block md:col-span-3">
-                          <span className="text-sm font-medium text-slate-700">Options</span>
-                          <textarea
-                            value={question.options.join("\n")}
-                            onChange={(event) => handleQuestionOptionsChange(index, event.target.value)}
-                            className="input-field mt-2 min-h-[100px]"
-                            placeholder="One option per line for MCQs"
-                          />
-                        </label>
+                        <div className="block md:col-span-3 rounded-[14px] border border-slate-200 bg-slate-50 px-3 py-3">
+                          <p className="text-sm font-semibold text-slate-900">{questionMeta.label}</p>
+                          <p className="mt-1 text-sm text-slate-600">{questionMeta.helper}</p>
+
+                          {questionMeta.supportsOptions ? (
+                            <div className="mt-4 space-y-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="text-sm font-medium text-slate-700">Options</span>
+                                {question.type === "multiple_choice" ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => addQuestionOption(index)}
+                                    className="btn-secondary"
+                                  >
+                                    <FiPlus className="h-4 w-4" />
+                                    Add option
+                                  </button>
+                                ) : null}
+                              </div>
+
+                              <div className="space-y-2">
+                                {question.options.map((option, optionIndex) => (
+                                  <div key={`${question.id}-option-${optionIndex}`} className="flex items-center gap-2">
+                                    <span className="w-8 text-center text-sm font-medium text-slate-500">
+                                      {String.fromCharCode(65 + optionIndex)}
+                                    </span>
+                                    <input
+                                      value={option}
+                                      onChange={(event) =>
+                                        updateQuestionOption(index, optionIndex, event.target.value)
+                                      }
+                                      disabled={question.type === "true_false"}
+                                      className="input-field flex-1"
+                                      placeholder={`Option ${optionIndex + 1}`}
+                                    />
+                                    {question.type === "multiple_choice" ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => removeQuestionOption(index, optionIndex)}
+                                        className="rounded-lg p-2 text-slate-500 hover:bg-white hover:text-red-600"
+                                        aria-label={`Remove option ${optionIndex + 1}`}
+                                      >
+                                        <FiTrash2 className="h-4 w-4" />
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               </section>
             </div>
