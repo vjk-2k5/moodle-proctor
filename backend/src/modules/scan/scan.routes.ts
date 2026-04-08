@@ -1,6 +1,7 @@
 import fp from 'fastify-plugin'
 import { FastifyInstance } from 'fastify'
 import config from '../../config'
+import logger from '../../config/logger'
 import {
   authMiddleware,
   requireStudent
@@ -65,16 +66,43 @@ export default fp(
               studentEmail: string
             }
           | undefined
+        const requestDebug = {
+          source,
+          attemptId: Number(body.attemptId || 0) || null,
+          uploadWindowMinutes: Number(body.uploadWindowMinutes || 0) || null,
+          hasRoomEnrollment: Boolean(roomEnrollment),
+          roomEnrollmentId: roomEnrollment?.enrollmentId || null,
+          roomExamId: roomEnrollment?.examId || null,
+          isManualRequest: isManualProctoringRequest(request),
+          userId: Number((request.user as any)?.id || 0) || null,
+          route: '/api/scan/sessions'
+        }
 
-        if (isManualProctoringRequest(request)) {
+        logger.info(
+          `[scan] create-session request ${JSON.stringify(requestDebug)}`
+        )
+
+        if (!roomEnrollment && isManualProctoringRequest(request)) {
           const manualAttemptPayload = getLatestManualAttempt()
           const manualStudent = buildManualStudent()
 
           if (manualAttemptPayload.attempt.status !== 'submitted') {
+            logger.warn(
+              `[scan] manual create-session rejected ${JSON.stringify({
+                ...requestDebug,
+                manualAttemptId: manualAttemptPayload.attempt.id,
+                manualAttemptStatus: manualAttemptPayload.attempt.status
+              })}`
+            )
             return reply.code(409).send({
               success: false,
               error:
-                'Answer sheet upload is only available after the exam is submitted'
+                'Answer sheet upload is only available after the exam is submitted',
+              debug: {
+                ...requestDebug,
+                manualAttemptId: manualAttemptPayload.attempt.id,
+                manualAttemptStatus: manualAttemptPayload.attempt.status
+              }
             })
           }
 
@@ -101,7 +129,14 @@ export default fp(
 
           return reply.send({
             success: true,
-            data: session
+            data: session,
+            debug: {
+              ...requestDebug,
+              mode: 'manual',
+              manualAttemptId: manualAttemptPayload.attempt.id,
+              manualAttemptStatus: manualAttemptPayload.attempt.status,
+              sessionToken: session.token
+            }
           })
         }
 
@@ -109,9 +144,13 @@ export default fp(
         const attemptId = Number(body.attemptId || 0)
 
         if (!attemptId) {
+          logger.warn(
+            `[scan] create-session missing attempt id ${JSON.stringify(requestDebug)}`
+          )
           return reply.code(400).send({
             success: false,
-            error: 'Attempt ID is required to create a scan session'
+            error: 'Attempt ID is required to create a scan session',
+            debug: requestDebug
           })
         }
 
@@ -156,19 +195,39 @@ export default fp(
         )
 
         if (result.rows.length === 0) {
+          logger.warn(
+            `[scan] create-session attempt not found ${JSON.stringify(requestDebug)}`
+          )
           return reply.code(404).send({
             success: false,
-            error: 'Submitted exam attempt not found'
+            error: 'Submitted exam attempt not found',
+            debug: requestDebug
           })
         }
 
         const row = result.rows[0]
+        const rowDebug = {
+          ...requestDebug,
+          dbAttemptId: row.attemptId,
+          dbAttemptStatus: row.attemptStatus,
+          dbExamId: row.examId,
+          dbStudentId: row.studentId,
+          dbSubmittedAt: row.submittedAt
+            ? new Date(row.submittedAt).toISOString()
+            : null,
+          dbSubmissionReason: row.submissionReason,
+          dbViolationCount: row.violationCount
+        }
 
         if (row.attemptStatus !== 'submitted') {
+          logger.warn(
+            `[scan] create-session rejected for non-submitted attempt ${JSON.stringify(rowDebug)}`
+          )
           return reply.code(409).send({
             success: false,
             error:
-              'Answer sheet upload is only available after the exam is submitted'
+              'Answer sheet upload is only available after the exam is submitted',
+            debug: rowDebug
           })
         }
 
@@ -198,7 +257,12 @@ export default fp(
 
         return reply.send({
           success: true,
-          data: session
+          data: session,
+          debug: {
+            ...rowDebug,
+            mode: roomEnrollment ? 'room' : 'auth',
+            sessionToken: session.token
+          }
         })
       }
     })

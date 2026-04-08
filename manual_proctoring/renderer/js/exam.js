@@ -115,7 +115,6 @@ async function fetchWithSessionOrRoom(url, options = {}) {
     const response = await fetch(url, {
       ...options,
       headers: {
-        ...MANUAL_PROCTORING_HEADERS,
         ...(options.headers || {}),
         'X-Room-Enrollment-Id': roomData.enrollmentId.toString(),
         'X-Room-Id': roomData.roomId.toString(), // Include for signature validation
@@ -1342,7 +1341,74 @@ function formatCompletionTimestamp (timestamp) {
   })
 }
 
-function renderCompletionScreen (reasonLabel, attempt = {}) {
+function normalizeCompletionAttempt (reason, attempt = currentAttempt) {
+  const nextAttempt =
+    attempt && typeof attempt === 'object'
+      ? {
+          ...attempt
+        }
+      : {}
+
+  if (!nextAttempt.submissionReason) {
+    nextAttempt.submissionReason = reason
+  }
+
+  if (!nextAttempt.submittedAt) {
+    nextAttempt.submittedAt = Date.now()
+  }
+
+  return nextAttempt
+}
+
+function formatDiagnosticValue (value) {
+  if (value === null || value === undefined || value === '') {
+    return 'n/a'
+  }
+
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, null, 2)
+    } catch (error) {
+      return String(value)
+    }
+  }
+
+  return String(value)
+}
+
+function buildUploadDebugMarkup (uploadDiagnostics = null) {
+  if (!uploadDiagnostics || typeof uploadDiagnostics !== 'object') {
+    return ''
+  }
+
+  const entries = Object.entries(uploadDiagnostics)
+    .filter(([, value]) => value !== undefined)
+    .map(
+      ([key, value]) =>
+        `<div><strong>${escapeHtml(key)}:</strong> <pre style="margin: 4px 0 0; white-space: pre-wrap; word-break: break-word; font: 12px/1.4 Consolas, monospace;">${escapeHtml(formatDiagnosticValue(value))}</pre></div>`
+    )
+    .join('')
+
+  if (!entries) {
+    return ''
+  }
+
+  return `
+    <details style="margin-top: 16px; text-align: left;">
+      <summary style="cursor: pointer; font-weight: 600; color: #475467;">Upload handoff debug details</summary>
+      <div style="margin-top: 12px; display: grid; gap: 10px;">
+        ${entries}
+      </div>
+    </details>
+  `
+}
+
+function renderCompletionScreen (
+  reasonLabel,
+  attempt = {},
+  uploadError = '',
+  uploadDiagnostics = null
+) {
   const warningCount = Number(attempt.violationCount || 0)
   const maxWarnings = normalizeWarningLimit(
     attempt.maxWarnings,
@@ -1357,6 +1423,15 @@ function renderCompletionScreen (reasonLabel, attempt = {}) {
     'left_exam',
     'warning_limit_reached'
   ].includes(attempt.submissionReason)
+  const uploadErrorMarkup = uploadError
+    ? `
+        <div style="margin-top: 18px; padding: 14px 16px; border-radius: 12px; background: #fef3f2; color: #b42318; text-align: left;">
+          <strong>Answer-sheet upload handoff failed.</strong>
+          <div style="margin-top: 6px;">${escapeHtml(uploadError)}</div>
+          ${buildUploadDebugMarkup(uploadDiagnostics)}
+        </div>
+      `
+    : ''
 
   document.body.innerHTML = `
     <div class="completion-screen">
@@ -1384,14 +1459,18 @@ function renderCompletionScreen (reasonLabel, attempt = {}) {
               : 'If you have any questions, please contact the invigilator.'
           }
         </p>
+        ${uploadErrorMarkup}
       </div>
     </div>
   `
 }
 
-function finishExamUI (reason) {
+function finishExamUI (reason, uploadError = '', uploadDiagnostics = null) {
   examSubmitted = true
   releaseExamResources()
+
+  const completionAttempt = normalizeCompletionAttempt(reason)
+  currentAttempt = completionAttempt
 
   const messageByReason = {
     manual_submit: 'Your exam has been submitted successfully.',
@@ -1402,28 +1481,58 @@ function finishExamUI (reason) {
 
   renderCompletionScreen(
     messageByReason[reason] || 'Your exam session has ended successfully.',
-    currentAttempt || { submissionReason: reason }
+    completionAttempt,
+    uploadError,
+    uploadDiagnostics
   )
 }
 
 async function openPostExamUploadHandoff (reason = 'manual_submit') {
   examSubmitted = true
-  releaseExamResources()
+  currentAttempt = normalizeCompletionAttempt(reason)
+  const uploadResult = await createAnswerSheetUploadSession(reason)
 
-  const uploadSession = await createAnswerSheetUploadSession(reason)
-
-  if (window.electronAPI?.openScanner && uploadSession) {
-    window.electronAPI.openScanner(uploadSession)
+  if (window.electronAPI?.openScanner && uploadResult.session) {
+    releaseExamResources()
+    window.electronAPI.openScanner(uploadResult.session)
     return true
   }
 
-  finishExamUI(reason)
+  const uploadDiagnostics = {
+    stage: window.electronAPI?.openScanner
+      ? 'electron_open_scanner'
+      : 'electron_api_missing',
+    hasElectronApi: Boolean(window.electronAPI),
+    hasOpenScanner: Boolean(window.electronAPI?.openScanner),
+    sessionCreated: Boolean(uploadResult.session),
+    sessionToken: uploadResult.session?.token || null,
+    mobileEntryUrl: uploadResult.session?.mobileEntryUrl || null,
+    ...(uploadResult.diagnostics || {})
+  }
+
+  finishExamUI(
+    reason,
+    uploadResult.error ||
+      'We could not prepare the QR handoff for answer-sheet upload.',
+    uploadDiagnostics
+  )
   return false
 }
 
 async function createAnswerSheetUploadSession (submissionReason = 'manual_submit') {
+  const attemptId = Number(currentAttempt?.id || 0) || undefined
+  const isRoomSession = await isRoomBasedSession()
+  const diagnostics = {
+    stage: 'create_scan_session_request',
+    apiBaseUrl: API_BASE_URL,
+    attemptId: attemptId || null,
+    submissionReason,
+    isRoomSession,
+    hasElectronApi: Boolean(window.electronAPI),
+    hasOpenScanner: Boolean(window.electronAPI?.openScanner)
+  }
+
   try {
-    const attemptId = Number(currentAttempt?.id || 0) || undefined
     const response = await fetchWithSessionOrRoom(`${API_BASE_URL}/api/scan/sessions`, {
       method: 'POST',
       headers: {
@@ -1437,23 +1546,75 @@ async function createAnswerSheetUploadSession (submissionReason = 'manual_submit
     })
 
     if (!response) {
-      return null
+      return {
+        session: null,
+        error: 'The exam session is no longer authenticated.',
+        diagnostics: {
+          ...diagnostics,
+          stage: 'scan_session_no_response'
+        }
+      }
     }
 
-    const data = await response.json()
+    const rawBody = await response.text()
+    let data = {}
+
+    if (rawBody) {
+      try {
+        data = JSON.parse(rawBody)
+      } catch (parseError) {
+        throw new Error(
+          rawBody.trim() ||
+            'The server returned an unreadable response while creating the upload session.'
+        )
+      }
+    }
+
+    const nextDiagnostics = {
+      ...diagnostics,
+      responseStatus: response.status,
+      responseOk: response.ok,
+      responseUrl: response.url,
+      responseBodyPreview: rawBody ? rawBody.slice(0, 1200) : '(empty)',
+      responseSuccess: Boolean(data.success),
+      responseError: data.error || data.message || null,
+      responseHasData: Boolean(data.data || data.session),
+      responseKeys: Object.keys(data || {}),
+      backendDebug: data.debug || null
+    }
 
     if (!response.ok || !data.success) {
-      throw new Error(
-        data.error ||
+      return {
+        session: null,
+        error:
+          data.error ||
           data.message ||
-          'We could not prepare the answer sheet upload session.'
-      )
+          'We could not prepare the answer sheet upload session.',
+        diagnostics: nextDiagnostics
+      }
     }
 
-    return data.data || data.session || null
+    return {
+      session: data.data || data.session || null,
+      error: data.data || data.session ? null : 'The server reported success but did not return a scan session.',
+      diagnostics: nextDiagnostics
+    }
   } catch (error) {
     console.error('Failed to create answer sheet upload session:', error)
-    return null
+    return {
+      session: null,
+      error:
+        error instanceof Error && error.message
+          ? error.message
+          : 'We could not prepare the answer sheet upload session.',
+      diagnostics: {
+        ...diagnostics,
+        stage: 'scan_session_exception',
+        exceptionName: error instanceof Error ? error.name : typeof error,
+        exceptionMessage:
+          error instanceof Error ? error.message : String(error || 'Unknown error')
+      }
+    }
   }
 }
 
@@ -1661,7 +1822,13 @@ async function startExamAttempt () {
     return false
   }
 
-  currentAttempt = data.attempt
+  currentAttempt =
+    data.attempt && typeof data.attempt === 'object'
+      ? {
+          ...(currentAttempt || {}),
+          ...data.attempt
+        }
+      : currentAttempt
   if (backendDisconnected) {
     clearReconnectCheck()
     setBackendDisconnectedState(
@@ -1669,9 +1836,9 @@ async function startExamAttempt () {
       'Connection restored. You can continue your exam.'
     )
   }
-  updateWarningLimitDisplay(data.attempt?.maxWarnings)
-  updateViolationCount(data.attempt.violationCount)
-  renderWarningHistory(data.attempt.violations)
+  updateWarningLimitDisplay(currentAttempt?.maxWarnings)
+  updateViolationCount(currentAttempt?.violationCount)
+  renderWarningHistory(currentAttempt?.violations)
   examStarted = true
   resetLiveMonitoringState()
   setAIProctoringStatus({
@@ -1707,7 +1874,13 @@ async function loadExam () {
     }
 
     if (data.attempt?.status === 'submitted') {
-      currentAttempt = data.attempt
+      currentAttempt =
+        data.attempt && typeof data.attempt === 'object'
+          ? {
+              ...(currentAttempt || {}),
+              ...data.attempt
+            }
+          : normalizeCompletionAttempt('manual_submit')
       await openPostExamUploadHandoff(
         data.attempt.submissionReason || 'manual_submit'
       )
@@ -1719,7 +1892,13 @@ async function loadExam () {
       ...(data.settings || {})
     }
 
-    currentAttempt = data.attempt
+    currentAttempt =
+      data.attempt && typeof data.attempt === 'object'
+        ? {
+            ...(currentAttempt || {}),
+            ...data.attempt
+          }
+        : currentAttempt
     updateWarningLimitDisplay()
 
     // Render header with room info or student info
@@ -1736,8 +1915,8 @@ async function loadExam () {
       renderExamHeader(data.student)
     }
 
-    updateViolationCount(data.attempt?.violationCount)
-    renderWarningHistory(data.attempt?.violations)
+    updateViolationCount(currentAttempt?.violationCount)
+    renderWarningHistory(currentAttempt?.violations)
 
     const cameraReady = await startCamera()
 
@@ -1811,7 +1990,17 @@ async function submitExam (reason = 'manual_submit') {
       return
     }
 
-    currentAttempt = data.attempt
+    currentAttempt =
+      data.attempt && typeof data.attempt === 'object'
+        ? {
+            ...(currentAttempt || {}),
+            ...data.attempt
+          }
+        : normalizeCompletionAttempt(reason)
+
+    if (!currentAttempt.submissionReason) {
+      currentAttempt.submissionReason = reason
+    }
 
     if (backendDisconnected) {
       clearReconnectCheck()
