@@ -7,7 +7,7 @@ ON CONFLICT (email) DO NOTHING;
 
 -- Create test exam
 INSERT INTO exams (id, moodle_course_id, moodle_course_module_id, exam_name, course_name, duration_minutes)
-VALUES (1, 1001, 2001, 'Midterm Mathematics', 'MATH 101', 60)
+VALUES (1, 1001, 2001, 'Midterm Mathematics', 'MATH 101', 60)0.
 ON CONFLICT (id) DO UPDATE SET exam_name = EXCLUDED.exam_name;
 
 -- Create test room with invite code

@@ -64,6 +64,18 @@ export async function ensureRoomSchema(client: QueryableClient): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_room_students_room_email ON proctoring_room_students(room_id, student_email);
     `);
 
+    await client.query(`
+      ALTER TABLE exam_attempts
+      ADD COLUMN IF NOT EXISTS hidden_at TIMESTAMP WITH TIME ZONE,
+      ADD COLUMN IF NOT EXISTS hidden_by_teacher_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS hidden_reason TEXT;
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_exam_attempts_hidden_at ON exam_attempts(hidden_at);
+      CREATE INDEX IF NOT EXISTS idx_exam_attempts_exam_hidden ON exam_attempts(exam_id, hidden_at);
+    `);
+
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');

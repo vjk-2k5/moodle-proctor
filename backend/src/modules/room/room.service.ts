@@ -426,6 +426,25 @@ export class ProctoringRoomService {
     return updateResult.rows[0];
   }
 
+  async deleteRoom(roomId: number, teacherId: number): Promise<void> {
+    const roomResult = await this.pg.query<Room>(
+      'SELECT * FROM proctoring_rooms WHERE id = $1',
+      [roomId]
+    );
+
+    if (roomResult.rows.length === 0) {
+      throw new RoomNotFoundError(roomId.toString());
+    }
+
+    const room = roomResult.rows[0];
+
+    if (room.teacher_id !== teacherId) {
+      throw new NotRoomOwnerError(roomId, teacherId);
+    }
+
+    await this.pg.query('DELETE FROM proctoring_rooms WHERE id = $1', [roomId]);
+  }
+
   /**
    * Get or create user by email (for student self-enrollment)
    * Returns user record that can be used for exam attempts

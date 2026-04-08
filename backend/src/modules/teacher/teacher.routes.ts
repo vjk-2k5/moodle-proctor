@@ -82,10 +82,14 @@ export default fp(async (fastify: FastifyInstance) => {
     const query = request.query as ListAttemptsQuery;
 
     // Parse numeric parameters
+    const rawIncludeHidden = (query as any).includeHidden;
+
     const parsedQuery: ListAttemptsQuery = {
       examId: query.examId ? parseInt(query.examId as any, 10) : undefined,
       status: query.status,
       userId: query.userId ? parseInt(query.userId as any, 10) : undefined,
+      search: query.search,
+      includeHidden: rawIncludeHidden === true || rawIncludeHidden === 'true',
       startDate: query.startDate,
       endDate: query.endDate,
       limit: query.limit ? parseInt(query.limit as any, 10) : undefined,
@@ -144,6 +148,96 @@ export default fp(async (fastify: FastifyInstance) => {
 
     const result = await teacherService.getAttemptViolations(attemptId);
     return reply.send(result);
+  });
+
+  fastify.post('/api/teacher/attempts/:id/hide', {
+    onRequest: [authMiddleware]
+  }, async (request, reply) => {
+    const user = (request as any).user;
+    requireRole(user, ['teacher']);
+
+    const attemptId = parseInt((request.params as any).id, 10);
+
+    if (isNaN(attemptId)) {
+      return reply.code(400).send({
+        success: false,
+        error: 'Invalid attempt ID'
+      });
+    }
+
+    try {
+      const result = await teacherService.hideAttempt(attemptId, user.id);
+      return reply.send(result);
+    } catch (error) {
+      if ((error as Error).message === 'Attempt not found') {
+        return reply.code(404).send({
+          success: false,
+          error: 'Attempt not found'
+        });
+      }
+
+      throw error;
+    }
+  });
+
+  fastify.post('/api/teacher/attempts/:id/unhide', {
+    onRequest: [authMiddleware]
+  }, async (request, reply) => {
+    const user = (request as any).user;
+    requireRole(user, ['teacher']);
+
+    const attemptId = parseInt((request.params as any).id, 10);
+
+    if (isNaN(attemptId)) {
+      return reply.code(400).send({
+        success: false,
+        error: 'Invalid attempt ID'
+      });
+    }
+
+    try {
+      const result = await teacherService.unhideAttempt(attemptId);
+      return reply.send(result);
+    } catch (error) {
+      if ((error as Error).message === 'Attempt not found') {
+        return reply.code(404).send({
+          success: false,
+          error: 'Attempt not found'
+        });
+      }
+
+      throw error;
+    }
+  });
+
+  fastify.delete('/api/teacher/attempts/:id', {
+    onRequest: [authMiddleware]
+  }, async (request, reply) => {
+    const user = (request as any).user;
+    requireRole(user, ['teacher']);
+
+    const attemptId = parseInt((request.params as any).id, 10);
+
+    if (isNaN(attemptId)) {
+      return reply.code(400).send({
+        success: false,
+        error: 'Invalid attempt ID'
+      });
+    }
+
+    try {
+      const result = await teacherService.deleteAttempt(attemptId, user.id);
+      return reply.send(result);
+    } catch (error) {
+      if ((error as Error).message === 'Attempt not found') {
+        return reply.code(404).send({
+          success: false,
+          error: 'Attempt not found'
+        });
+      }
+
+      throw error;
+    }
   });
 
   // ==========================================================================

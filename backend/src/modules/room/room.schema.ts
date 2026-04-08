@@ -88,3 +88,12 @@ export interface StudentJoinResponse {
   };
   error?: string;
 }
+
+export interface DeleteRoomResponse {
+  success: boolean;
+  data?: {
+    roomId: number;
+    deleted: boolean;
+  };
+  error?: string;
+}

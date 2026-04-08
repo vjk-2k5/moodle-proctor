@@ -32,10 +32,6 @@ let webRTCBroadcastState = {
 }
 let teacherBroadcastStartTimeoutId = null
 
-// ============================================================================
-// Room-Based Enrollment Support
-// ============================================================================
-
 let roomEnrollment = null
 
 async function getSafeStorage () {

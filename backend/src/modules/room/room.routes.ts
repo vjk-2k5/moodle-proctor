@@ -18,7 +18,8 @@ import type {
   StudentJoinRequest,
   StudentJoinResponse,
   ActiveRoomsResponse,
-  CloseRoomResponse
+  CloseRoomResponse,
+  DeleteRoomResponse
 } from './room.schema';
 
 // ============================================================================
@@ -415,6 +416,53 @@ export default fp(async (fastify: FastifyInstance) => {
           return reply.code(400).send({
             success: false,
             error: (error as Error).message
+          });
+        }
+
+        throw error;
+      }
+    }
+  });
+
+  fastify.delete('/api/room/:id', {
+    onRequest: [authMiddleware],
+    schema: {
+      params: {
+        type: 'object',
+        properties: {
+          id: { type: 'number' }
+        },
+        required: ['id']
+      }
+    },
+    handler: async (request, reply): Promise<DeleteRoomResponse> => {
+      // @ts-ignore
+      const teacherId = request.user.id;
+      const { id } = request.params as { id: string };
+
+      try {
+        const roomId = parseInt(id, 10);
+        await roomService.deleteRoom(roomId, teacherId);
+
+        return {
+          success: true,
+          data: {
+            roomId,
+            deleted: true
+          }
+        };
+      } catch (error) {
+        if ((error as Error).name === 'RoomNotFoundError') {
+          return reply.code(404).send({
+            success: false,
+            error: 'Room not found'
+          });
+        }
+
+        if ((error as Error).name === 'NotRoomOwnerError') {
+          return reply.code(403).send({
+            success: false,
+            error: 'You are not the owner of this room'
           });
         }
 

@@ -46,6 +46,8 @@ export function useTeacherStats(filters?: { examId?: number }) {
 export function useAttempts(query: {
   examId?: number;
   status?: string;
+  search?: string;
+  includeHidden?: boolean;
   limit?: number;
   offset?: number;
 }) {
@@ -72,7 +74,7 @@ export function useAttempts(query: {
 
   useEffect(() => {
     fetchAttempts();
-  }, [query.examId, query.status, query.limit, query.offset]);
+  }, [query.examId, query.status, query.search, query.includeHidden, query.limit, query.offset]);
 
   return { attempts, total, isLoading, error, refetch: fetchAttempts };
 }

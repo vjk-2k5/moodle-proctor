@@ -10,6 +10,8 @@ export interface ListAttemptsQuery {
   examId?: number;
   status?: 'not_started' | 'in_progress' | 'submitted' | 'terminated';
   userId?: number;
+  search?: string;
+  includeHidden?: boolean;
   startDate?: string;
   endDate?: string;
   limit?: number;
@@ -90,6 +92,8 @@ export interface TeacherAttempt {
   durationMinutes: number;
   maxWarnings: number;
   ipAddress: string;
+  hiddenAt: Date | null;
+  isHidden: boolean;
 }
 
 export interface TeacherAttemptListResponse {

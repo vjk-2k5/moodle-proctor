@@ -75,6 +75,8 @@ export interface TeacherAttempt {
   durationMinutes: number;
   maxWarnings: number;
   ipAddress: string;
+  hiddenAt: string | null;
+  isHidden: boolean;
 }
 
 export interface TeacherStudent {
@@ -260,6 +262,8 @@ class BackendAPIClient {
     examId?: number;
     status?: string;
     userId?: number;
+    search?: string;
+    includeHidden?: boolean;
     startDate?: string;
     endDate?: string;
     limit?: number;
@@ -381,6 +385,42 @@ class BackendAPIClient {
       `/api/room/${roomId}/close`,
       {
         method: 'POST',
+      }
+    );
+  }
+
+  async deleteRoom(roomId: number) {
+    return this.request<{ success: true; data: { roomId: number; deleted: boolean } }>(
+      `/api/room/${roomId}`,
+      {
+        method: 'DELETE',
+      }
+    );
+  }
+
+  async hideAttempt(attemptId: number) {
+    return this.request<{ success: true; data: { attemptId: number; hiddenAt: string; isHidden: boolean } }>(
+      `/api/teacher/attempts/${attemptId}/hide`,
+      {
+        method: 'POST',
+      }
+    );
+  }
+
+  async unhideAttempt(attemptId: number) {
+    return this.request<{ success: true; data: { attemptId: number; isHidden: boolean } }>(
+      `/api/teacher/attempts/${attemptId}/unhide`,
+      {
+        method: 'POST',
+      }
+    );
+  }
+
+  async deleteAttempt(attemptId: number) {
+    return this.request<{ success: true; data: { attemptId: number; deleted: boolean } }>(
+      `/api/teacher/attempts/${attemptId}`,
+      {
+        method: 'DELETE',
       }
     );
   }

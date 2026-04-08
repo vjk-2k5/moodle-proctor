@@ -35,6 +35,8 @@ export class TeacherService {
     query: {
       examId?: number;
       userId?: number;
+      search?: string;
+      includeHidden?: boolean;
       startDate?: string;
       endDate?: string;
     },
@@ -65,6 +67,22 @@ export class TeacherService {
     if (query.userId) {
       params.push(query.userId);
       conditions.push(`${userColumn} = $${params.length}`);
+    }
+
+    if (query.search) {
+      params.push(`%${query.search}%`);
+      conditions.push(`(
+        u.username ILIKE $${params.length} OR
+        u.email ILIKE $${params.length} OR
+        u.first_name ILIKE $${params.length} OR
+        u.last_name ILIKE $${params.length} OR
+        e.exam_name ILIKE $${params.length} OR
+        e.course_name ILIKE $${params.length}
+      )`);
+    }
+
+    if (!query.includeHidden) {
+      conditions.push('ea.hidden_at IS NULL');
     }
 
     if (query.startDate) {
@@ -113,7 +131,7 @@ export class TeacherService {
         COUNT(DISTINCT ea.id) FILTER (WHERE ea.status = 'submitted') as "completedAttempts",
         COUNT(DISTINCT ea.id) as "totalAttempts"
       FROM exams e
-      LEFT JOIN exam_attempts ea ON e.id = ea.exam_id
+      LEFT JOIN exam_attempts ea ON e.id = ea.exam_id AND ea.hidden_at IS NULL
       ${whereClause}
       GROUP BY e.id
       ORDER BY e.created_at DESC
@@ -148,7 +166,7 @@ export class TeacherService {
         COUNT(DISTINCT ea.id) FILTER (WHERE ea.status = 'submitted') as "completedAttempts",
         COUNT(DISTINCT ea.id) as "totalAttempts"
       FROM exams e
-      LEFT JOIN exam_attempts ea ON e.id = ea.exam_id
+      LEFT JOIN exam_attempts ea ON e.id = ea.exam_id AND ea.hidden_at IS NULL
       WHERE e.id = $1
       GROUP BY e.id`,
       [examId]
@@ -198,6 +216,7 @@ export class TeacherService {
         ea.submission_reason as "submissionReason",
         ea.violation_count as "violationCount",
         ea.ip_address as "ipAddress",
+        ea.hidden_at as "hiddenAt",
         e.exam_name as "examName",
         e.course_name as "courseName",
         e.duration_minutes as "durationMinutes",
@@ -254,6 +273,7 @@ export class TeacherService {
         ea.submission_reason as "submissionReason",
         ea.violation_count as "violationCount",
         ea.ip_address as "ipAddress",
+        ea.hidden_at as "hiddenAt",
         e.exam_name as "examName",
         e.course_name as "courseName",
         e.moodle_course_id as "moodleCourseId",
@@ -596,6 +616,8 @@ export class TeacherService {
     const countQuery = `
       SELECT COUNT(*) as count
       FROM exam_attempts ea
+      JOIN exams e ON ea.exam_id = e.id
+      JOIN users u ON ea.user_id = u.id
       ${whereClause}
     `;
 
@@ -628,6 +650,81 @@ export class TeacherService {
       data: {
         reports,
         total: parseInt(countResult.rows[0].count, 10)
+      }
+    };
+  }
+
+  async hideAttempt(attemptId: number, teacherId: number) {
+    const result = await this.pg.query(
+      `UPDATE exam_attempts
+       SET hidden_at = NOW(),
+           hidden_by_teacher_id = $2
+       WHERE id = $1
+       RETURNING id, hidden_at as "hiddenAt"`,
+      [attemptId, teacherId]
+    );
+
+    if (result.rows.length === 0) {
+      throw new Error('Attempt not found');
+    }
+
+    return {
+      success: true as const,
+      data: {
+        attemptId,
+        hiddenAt: result.rows[0].hiddenAt,
+        isHidden: true
+      }
+    };
+  }
+
+  async unhideAttempt(attemptId: number) {
+    const result = await this.pg.query(
+      `UPDATE exam_attempts
+       SET hidden_at = NULL,
+           hidden_by_teacher_id = NULL,
+           hidden_reason = NULL
+       WHERE id = $1
+       RETURNING id`,
+      [attemptId]
+    );
+
+    if (result.rows.length === 0) {
+      throw new Error('Attempt not found');
+    }
+
+    return {
+      success: true as const,
+      data: {
+        attemptId,
+        isHidden: false
+      }
+    };
+  }
+
+  async deleteAttempt(attemptId: number, teacherId: number) {
+    const result = await this.pg.query(
+      `DELETE FROM exam_attempts
+       WHERE id = $1
+       RETURNING id, exam_id as "examId", user_id as "userId"`,
+      [attemptId]
+    );
+
+    if (result.rows.length === 0) {
+      throw new Error('Attempt not found');
+    }
+
+    await this.pg.query(
+      `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details)
+       VALUES ($1, 'attempt_delete', 'attempt', $2, $3)`,
+      [teacherId, attemptId, JSON.stringify({ examId: result.rows[0].examId, userId: result.rows[0].userId })]
+    );
+
+    return {
+      success: true as const,
+      data: {
+        attemptId,
+        deleted: true
       }
     };
   }
@@ -667,8 +764,10 @@ export class TeacherService {
     }
 
     const attemptFilter = attemptConditions.length > 0 ? `AND ${attemptConditions.join(' AND ')}` : '';
-    const attemptWhere = attemptConditions.length > 0 ? `WHERE ${attemptConditions.join(' AND ')}` : '';
-    const violationWhere = violationConditions.length > 0 ? `WHERE ${violationConditions.join(' AND ')}` : '';
+    const attemptWhereConditions = ['ea.hidden_at IS NULL', ...attemptConditions];
+    const attemptWhere = `WHERE ${attemptWhereConditions.join(' AND ')}`;
+    const violationWhereConditions = ['ea.hidden_at IS NULL', ...violationConditions];
+    const violationWhere = `WHERE ${violationWhereConditions.join(' AND ')}`;
     const examWhere = query.examId ? `WHERE e.id = $${params.length}` : '';
 
     // Get overview stats
@@ -681,7 +780,7 @@ export class TeacherService {
         COUNT(ea.id) FILTER (WHERE ea.status = 'submitted') as "completedAttempts",
         COUNT(ea.id) FILTER (WHERE ea.status = 'terminated') as "terminatedAttempts"
       FROM exams e
-      LEFT JOIN exam_attempts ea ON e.id = ea.exam_id ${attemptFilter}
+      LEFT JOIN exam_attempts ea ON e.id = ea.exam_id AND ea.hidden_at IS NULL ${attemptFilter}
       ${examWhere}
     `,
       params
@@ -724,7 +823,7 @@ export class TeacherService {
         COUNT(DISTINCT u.id) FILTER (WHERE ea.status = 'in_progress') as "active"
       FROM users u
       LEFT JOIN exam_attempts ea ON u.id = ea.user_id
-      WHERE u.role = 'student' ${attemptFilter}
+      WHERE u.role = 'student' AND ea.hidden_at IS NULL ${attemptFilter}
     `,
       params
     );
@@ -815,7 +914,9 @@ export class TeacherService {
       violationCount: row.violationCount,
       durationMinutes: row.durationMinutes,
       maxWarnings: row.maxWarnings,
-      ipAddress: row.ipAddress
+      ipAddress: row.ipAddress,
+      hiddenAt: row.hiddenAt,
+      isHidden: Boolean(row.hiddenAt)
     };
   }
 }

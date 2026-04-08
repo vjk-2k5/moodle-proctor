@@ -90,6 +90,33 @@ const DEMO_EXAMS = [
     duration_minutes: 45,
     max_warnings: 10,
     question_paper_path: '/exams/cs101_quiz.pdf'
+  },
+  {
+    moodle_course_id: 4,
+    moodle_course_module_id: 4,
+    exam_name: 'Chemistry Lab Assessment',
+    course_name: 'Chemistry 110',
+    duration_minutes: 75,
+    max_warnings: 12,
+    question_paper_path: '/exams/chem110_lab.pdf'
+  },
+  {
+    moodle_course_id: 5,
+    moodle_course_module_id: 5,
+    exam_name: 'English Literature Essay Test',
+    course_name: 'English Literature 205',
+    duration_minutes: 120,
+    max_warnings: 15,
+    question_paper_path: '/exams/eng205_essay.pdf'
+  },
+  {
+    moodle_course_id: 6,
+    moodle_course_module_id: 6,
+    exam_name: 'Data Structures Practicum',
+    course_name: 'CS 220 - Data Structures',
+    duration_minutes: 90,
+    max_warnings: 12,
+    question_paper_path: '/exams/cs220_practicum.pdf'
   }
 ];
 
@@ -130,6 +157,8 @@ class DatabaseSeeder {
 
     await this.client.query('DELETE FROM violations');
     await this.client.query('DELETE FROM proctoring_sessions');
+    await this.client.query('DELETE FROM proctoring_room_students');
+    await this.client.query('DELETE FROM proctoring_rooms');
     await this.client.query('DELETE FROM exam_attempts');
     await this.client.query('DELETE FROM exams');
     await this.client.query('DELETE FROM audit_logs');
@@ -141,6 +170,8 @@ class DatabaseSeeder {
     await this.client.query('ALTER SEQUENCE exam_attempts_id_seq RESTART WITH 1');
     await this.client.query('ALTER SEQUENCE violations_id_seq RESTART WITH 1');
     await this.client.query('ALTER SEQUENCE proctoring_sessions_id_seq RESTART WITH 1');
+    await this.client.query('ALTER SEQUENCE proctoring_rooms_id_seq RESTART WITH 1');
+    await this.client.query('ALTER SEQUENCE proctoring_room_students_id_seq RESTART WITH 1');
     await this.client.query('ALTER SEQUENCE audit_logs_id_seq RESTART WITH 1');
 
     console.log('✅ Tables cleared');
@@ -213,7 +244,7 @@ class DatabaseSeeder {
         'Mozilla/5.0...'
       ]
     );
-    console.log('  ✅ Created attempt: student1 -> Math exam (submitted)');
+    console.log('   Created attempt: student1 -> Math exam (submitted)');
 
     // Student 2 in progress
     await this.client.query(

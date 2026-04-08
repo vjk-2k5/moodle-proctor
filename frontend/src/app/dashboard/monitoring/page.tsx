@@ -11,6 +11,7 @@ import {
   FiPlus,
   FiShield,
   FiSlash,
+  FiTrash2,
   FiUsers,
   FiVideo
 } from "react-icons/fi";
@@ -19,7 +20,7 @@ import { AlertPanel } from "@components/AlertPanel";
 import { RoomCreationModal } from "@components/RoomCreationModal";
 import { RoomSelector } from "@components/RoomSelector";
 import { StudentsGrid } from "@components/StudentsGrid";
-import { useActiveRooms, useAttempts } from "@/hooks/useTeacherData";
+import { useActiveRooms, useAttempts, useExams } from "@/hooks/useTeacherData";
 import { backendAPI, type ProctoringRoomSummary } from "@/lib/backend";
 
 const LAST_ROOM_STORAGE_KEY = "teacher-monitoring:last-room-code";
@@ -54,6 +55,7 @@ export default function LiveMonitoringPage() {
     status: "in_progress",
     limit: 25
   });
+  const { exams } = useExams();
   const { rooms, isLoading: roomsLoading, refetch: refetchRooms } = useActiveRooms();
 
   const [currentRoomCode, setCurrentRoomCode] = useState<string | undefined>(undefined);
@@ -62,6 +64,7 @@ export default function LiveMonitoringPage() {
   const [isRoomCreationOpen, setIsRoomCreationOpen] = useState(false);
   const [copiedField, setCopiedField] = useState<"code" | "launch" | "invite" | null>(null);
   const [isClosingRoom, setIsClosingRoom] = useState(false);
+  const [isDeletingRoom, setIsDeletingRoom] = useState(false);
   const [roomActionError, setRoomActionError] = useState<string | null>(null);
   const hasHydratedRoom = useRef(false);
 
@@ -214,6 +217,37 @@ export default function LiveMonitoringPage() {
     }
   }, [currentRoom, refetchRooms]);
 
+  const handleDeleteRoom = useCallback(async (room: ProctoringRoomSummary) => {
+    const confirmed = window.confirm(
+      `Delete room ${room.roomCode} for ${room.examName}? This removes the room from the dashboard and students will not be able to rejoin it.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsDeletingRoom(true);
+    setRoomActionError(null);
+
+    try {
+      await backendAPI.deleteRoom(room.id);
+      const refreshedResponse = await backendAPI.getActiveRooms();
+      const remainingRooms = refreshedResponse.data;
+
+      if (currentRoomCode === room.roomCode) {
+        setCurrentRoomCode(remainingRooms[0]?.roomCode);
+        setCurrentRoomLabelFallback(remainingRooms[0]?.examName ?? "No room selected");
+      }
+
+      await refetchRooms();
+    } catch (error) {
+      console.error("[Monitoring] Failed to delete room:", error);
+      setRoomActionError(error instanceof Error ? error.message : "Failed to delete room");
+    } finally {
+      setIsDeletingRoom(false);
+    }
+  }, [currentRoomCode, refetchRooms]);
+
   return (
     <section className="space-y-6">
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -303,6 +337,32 @@ export default function LiveMonitoringPage() {
                     </p>
                   </div>
                 ))}
+              </div>
+
+              <div className="surface-subtle rounded-[24px] px-4 py-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950">Exam launch lineup</p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      All available exams stay visible here so creating the next room does not feel like a one-exam workflow.
+                    </p>
+                  </div>
+                  <span className="info-chip">{exams.length} exams available</span>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {exams.slice(0, 6).map((exam) => (
+                    <div key={exam.id} className="rounded-[22px] border border-slate-200 bg-white/80 px-4 py-4">
+                      <p className="text-sm font-semibold text-slate-950">{exam.examName}</p>
+                      <p className="mt-1 text-sm text-slate-500">{exam.courseName}</p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        <span>{exam.durationMinutes} min</span>
+                        <span>{exam.totalAttempts ?? 0} attempts</span>
+                        <span>{exam.activeAttempts ?? 0} active</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </article>
@@ -406,6 +466,24 @@ export default function LiveMonitoringPage() {
                             </>
                           )}
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteRoom(currentRoom)}
+                          disabled={isDeletingRoom}
+                          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isDeletingRoom ? (
+                            <>
+                              <FiLoader className="h-4 w-4 animate-spin" />
+                              Deleting...
+                            </>
+                          ) : (
+                            <>
+                              <FiTrash2 className="h-4 w-4" />
+                              Delete room
+                            </>
+                          )}
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -471,19 +549,21 @@ export default function LiveMonitoringPage() {
                       const isCurrent = room.roomCode === currentRoomCode;
 
                       return (
-                        <button
+                        <div
                           key={room.id}
-                          type="button"
-                          onClick={() => handleRoomSelect(room)}
                           className={[
-                            "w-full rounded-[22px] border px-4 py-4 text-left transition-all duration-200",
+                            "rounded-[22px] border px-4 py-4 transition-all duration-200",
                             isCurrent
                               ? "border-slate-950 bg-slate-950 text-white"
-                              : "border-slate-200 bg-white/90 hover:border-slate-300 hover:bg-white"
+                              : "border-slate-200 bg-white/90"
                           ].join(" ")}
                         >
                           <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0 flex-1">
+                            <button
+                              type="button"
+                              onClick={() => handleRoomSelect(room)}
+                              className="min-w-0 flex-1 text-left"
+                            >
                               <p className="truncate text-base font-semibold">{room.examName}</p>
                               <p className={["mt-1 text-sm", isCurrent ? "text-slate-300" : "text-slate-500"].join(" ")}>
                                 {room.courseName}
@@ -498,20 +578,35 @@ export default function LiveMonitoringPage() {
                                 <span>{room.durationMinutes} min</span>
                                 <span>{room.roomCode}</span>
                               </div>
-                            </div>
+                            </button>
 
-                            <span
-                              className={[
-                                "rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]",
-                                isCurrent
-                                  ? "border border-white/10 bg-white/10 text-white"
-                                  : "bg-emerald-100 text-emerald-800"
-                              ].join(" ")}
-                            >
-                              {isCurrent ? "Current" : "Open"}
-                            </span>
+                            <div className="flex flex-col items-end gap-2">
+                              <span
+                                className={[
+                                  "rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]",
+                                  isCurrent
+                                    ? "border border-white/10 bg-white/10 text-white"
+                                    : "bg-emerald-100 text-emerald-800"
+                                ].join(" ")}
+                              >
+                                {isCurrent ? "Current" : "Open"}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => void handleDeleteRoom(room)}
+                                className={[
+                                  "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]",
+                                  isCurrent
+                                    ? "border border-white/10 bg-white/10 text-white"
+                                    : "border border-slate-200 bg-slate-50 text-slate-600"
+                                ].join(" ")}
+                              >
+                                <FiTrash2 className="h-3 w-3" />
+                                Delete
+                              </button>
+                            </div>
                           </div>
-                        </button>
+                        </div>
                       );
                     })}
 
