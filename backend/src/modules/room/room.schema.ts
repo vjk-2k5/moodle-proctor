@@ -55,6 +55,7 @@ export interface ActiveRoomsResponse {
   success: boolean;
   data?: Array<{
     id: number;
+    examId: number;
     roomCode: string;
     examName: string;
     courseName: string;

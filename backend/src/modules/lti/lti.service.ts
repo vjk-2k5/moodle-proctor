@@ -3,7 +3,6 @@
 // OAuth 1.0 signature validation and LTI launch processing
 // ============================================================================
 
-import { Provider } from 'ims-lti';
 import crypto from 'crypto';
 import type { Pool } from 'pg';
 import logger from '../../config/logger';
@@ -86,10 +85,20 @@ const nonceStore = new MemoryNonceStore();
  * Create LTI Provider with consumer credentials and nonce store
  * NOTE: We create provider per-request since consumer key/secret may vary
  */
-function createProvider(consumerKey: string, consumerSecret: string): Provider {
-  // ims-lti Provider constructor signature:
-  // new Provider(consumerKey, consumerSecret, options, nonceStore)
-  return new Provider(
+function createProvider(consumerKey: string, consumerSecret: string): any {
+  let ProviderCtor: any;
+
+  try {
+    // Load lazily so the backend can still boot when LTI validation is disabled
+    // in local development and the optional package is not installed.
+    ({ Provider: ProviderCtor } = require('ims-lti'));
+  } catch (error) {
+    throw new Error(
+      'ims-lti is not installed. Install it before enabling LTI signature validation.'
+    );
+  }
+
+  return new ProviderCtor(
     consumerKey,
     consumerSecret,
     {
@@ -97,7 +106,7 @@ function createProvider(consumerKey: string, consumerSecret: string): Provider {
       nonce: () => crypto.randomBytes(16).toString('base64'),
       timestamp: () => Math.floor(Date.now() / 1000).toString()
     },
-    nonceStore as any // Cast to any to bypass type checking for nonceStore
+    nonceStore
   );
 }
 
@@ -452,13 +461,34 @@ export async function findOrCreateUserByEmail(
       return existingResult.rows[0].id;
     }
 
-    // Create new user (student role)
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedName = (name || normalizedEmail.split('@')[0]).trim();
+    const [firstName, ...rest] = normalizedName.split(/\s+/).filter(Boolean);
+    const lastName = rest.join(' ');
+    const fallbackUsername = normalizedEmail
+      .split('@')[0]
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      || `lti-user-${Date.now()}`;
+
+    // Create new user (student role) using the current users schema.
     const insertResult = await pg.query(
-      `INSERT INTO users (email, name, role) VALUES ($1, $2, 'student')
+      `INSERT INTO users (
+        moodle_user_id,
+        username,
+        email,
+        first_name,
+        last_name,
+        role
+      ) VALUES ($1, $2, $3, $4, $5, 'student')
       RETURNING id`,
       [
-        email,
-        name || email.split('@')[0] // Use email username if name not provided
+        -Math.floor(Math.random() * 2147483646) - 1,
+        fallbackUsername,
+        normalizedEmail,
+        firstName || normalizedName,
+        lastName
       ]
     );
 

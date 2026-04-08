@@ -5,15 +5,7 @@
 
 import axios from 'axios';
 import crypto from 'crypto';
-import { Provider } from 'ims-lti';
 import logger from '../../config/logger';
-
-// ============================================================================
-// Configuration
-// ============================================================================
-
-const DEFAULT_CONSUMER_KEY = process.env.LTI_CONSUMER_KEY || 'moodle';
-const DEFAULT_CONSUMER_SECRET = process.env.LTI_CONSUMER_SECRET || 'secret';
 
 // ============================================================================
 // Types
@@ -45,17 +37,6 @@ export interface LtiOutcomeResponse {
 // ============================================================================
 // LTI Outcomes Service
 // ============================================================================
-
-/**
- * Create LTI Provider with consumer credentials
- */
-function createProvider(consumerKey: string, consumerSecret: string): Provider {
-  return new Provider(consumerKey, consumerSecret, {
-    signature_method: 'HMAC-SHA1',
-    nonce: () => crypto.randomBytes(16).toString('base64'),
-    timestamp: () => Math.floor(Date.now() / 1000).toString()
-  });
-}
 
 /**
  * Parse POX XML request for replaceResult
@@ -171,9 +152,6 @@ export async function sendGradeToMoodle(
 
     // Build POX XML request body
     const poxBody = buildReplaceResultPox(sourcedId, score, messageIdentifier);
-
-    // Create OAuth-signed request
-    const provider = createProvider(consumerKey, consumerSecret);
 
     // Prepare OAuth parameters
     const oauthParams = {

@@ -5,14 +5,12 @@
 
 import fp from 'fastify-plugin';
 import { FastifyInstance } from 'fastify';
-import jwt from 'jsonwebtoken';
 import {
   validateLaunchRequest,
   findOrCreateRoomForLtiContext,
   findOrCreateUserByEmail
 } from './lti.service';
 import {
-  sendGradeToMoodle,
   sendGradeForAttempt
 } from './lti-outcomes.service';
 import logger from '../../config/logger';
@@ -22,6 +20,64 @@ import logger from '../../config/logger';
 // ============================================================================
 
 export default fp(async (fastify: FastifyInstance) => {
+  fastify.get('/api/lti/launch', {
+    config: {
+      public: true
+    }
+  }, async (_request, reply) => {
+    return reply.type('text/html').send(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>LTI Launch Endpoint</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: #f8fafc;
+            color: #0f172a;
+            margin: 0;
+            padding: 48px 20px;
+          }
+          .card {
+            max-width: 760px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
+            padding: 32px;
+          }
+          h1 {
+            margin-top: 0;
+          }
+          code {
+            background: #e2e8f0;
+            padding: 2px 6px;
+            border-radius: 6px;
+          }
+          ul {
+            padding-left: 20px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h1>LTI launch endpoint is online</h1>
+          <p>This URL expects an <strong>LTI 1.1 POST launch</strong> from Moodle, not a normal browser GET request.</p>
+          <p>If you reached this page from Moodle, the External Tool is likely configured as a plain URL instead of a proper LTI launch.</p>
+          <ul>
+            <li>Tool URL: <code>${process.env.BACKEND_URL || 'http://localhost:5000'}/api/lti/launch</code></li>
+            <li>Consumer key: <code>${process.env.LTI_CONSUMER_KEY || 'moodle'}</code></li>
+            <li>Launch container: <code>New window</code></li>
+            <li>Privacy: enable name and email sharing</li>
+          </ul>
+        </div>
+      </body>
+      </html>
+    `);
+  });
+
   // ==========================================================================
   // POST /api/lti/launch - LTI 1.1 launch endpoint
   // ==========================================================================
@@ -137,7 +193,7 @@ export default fp(async (fastify: FastifyInstance) => {
         fastify.pg as any,
         ltiContext,
         1, // exam_id (default to 1 for LTI)
-        ltiContext.isInstructor ? userId : undefined // Pass database user ID for instructors
+        ltiContext.isInstructor ? (userId || undefined) : undefined // Pass database user ID for instructors
       );
 
       // ======================================================================
@@ -155,10 +211,9 @@ export default fp(async (fastify: FastifyInstance) => {
         exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours
       };
 
-      const token = jwt.sign(
+      const token = fastify.jwt.sign(
         tokenPayload,
-        process.env.JWT_SECRET || 'dev-secret',
-        { algorithm: 'HS256' }
+        { expiresIn: '24h' }
       );
 
       logger.info('Generated JWT for LTI launch', {

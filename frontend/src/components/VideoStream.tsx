@@ -33,76 +33,55 @@ export function VideoStream({
     }
   }, [stream]);
 
-  const connectionTone = {
-    connecting: 'bg-amber-400',
-    connected: 'bg-emerald-400',
-    disconnected: 'bg-red-400',
+  const connectionLabel = {
+    connecting: 'Connecting',
+    connected: 'Live',
+    disconnected: 'Disconnected',
   }[connectionState];
 
   return (
-    <article className="group relative h-full overflow-hidden rounded-[24px] border border-white/10 bg-slate-900 shadow-2xl shadow-slate-950/20">
+    <article className="relative h-full bg-slate-950">
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted={false}
-        className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.015]"
+        className="h-full w-full object-cover"
       />
 
-      <div className="absolute inset-x-0 top-0 flex items-center justify-between p-3">
-        <div className="flex items-center gap-2 rounded-full bg-slate-950/70 px-3 py-1.5 text-xs font-semibold capitalize text-white backdrop-blur-sm">
-          <span className={`h-2.5 w-2.5 rounded-full ${connectionTone}`} />
-          {connectionState}
-        </div>
-
-        <div className="rounded-full bg-slate-950/70 px-3 py-1.5 text-[11px] font-medium text-slate-200 backdrop-blur-sm">
-          {peerId}
-        </div>
+      <div className="absolute left-3 top-3 inline-flex items-center rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white">
+        {connectionLabel}
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950 via-slate-950/75 to-transparent p-4">
-        <div className="flex items-end justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
-              Student feed
-            </p>
-            <p className="mt-1 truncate text-base font-semibold text-white">{studentName}</p>
-          </div>
+      <div className="absolute right-3 top-3 inline-flex items-center rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white">
+        {peerId}
+      </div>
 
-          <div className="flex items-center gap-2">
-            <span
-              className={[
-                'flex h-9 w-9 items-center justify-center rounded-full border text-white backdrop-blur-sm',
-                videoEnabled
-                  ? 'border-emerald-400/30 bg-emerald-500/20'
-                  : 'border-red-400/30 bg-red-500/20',
-              ].join(' ')}
-            >
-              {videoEnabled ? <FiVideo size={15} /> : <FiVideoOff size={15} />}
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-4 py-3 text-white">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold">{studentName}</p>
+            <p className="mt-1 text-xs text-slate-200">Student camera</p>
+          </div>
+          <div className="flex items-center gap-2 text-white">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/60">
+              {videoEnabled ? <FiVideo size={14} /> : <FiVideoOff size={14} />}
             </span>
-            <span
-              className={[
-                'flex h-9 w-9 items-center justify-center rounded-full border text-white backdrop-blur-sm',
-                audioEnabled
-                  ? 'border-emerald-400/30 bg-emerald-500/20'
-                  : 'border-red-400/30 bg-red-500/20',
-              ].join(' ')}
-            >
-              {audioEnabled ? <FiMic size={15} /> : <FiMicOff size={15} />}
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/60">
+              {audioEnabled ? <FiMic size={14} /> : <FiMicOff size={14} />}
             </span>
           </div>
         </div>
       </div>
 
-      {!isProducing && (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-950/76 backdrop-blur-sm">
-          <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-5 text-center">
-            <FiVideoOff size={28} className="mx-auto text-slate-200" />
-            <p className="mt-3 text-sm font-semibold text-white">Camera paused</p>
-            <p className="mt-1 text-xs text-slate-300">Waiting for the student video feed.</p>
+      {!isProducing ? (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-center text-white">
+          <div>
+            <p className="text-sm font-semibold">Camera paused</p>
+            <p className="mt-1 text-xs text-slate-200">Waiting for video to resume.</p>
           </div>
         </div>
-      )}
+      ) : null}
     </article>
   );
 }

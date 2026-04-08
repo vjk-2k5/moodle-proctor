@@ -75,6 +75,7 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         ok: true,
+        token: data.token,
         user: data.user,
       });
     }

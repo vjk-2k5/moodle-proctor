@@ -177,6 +177,7 @@ export interface CreateRoomParams {
 
 export interface ActiveRoomSummary {
   id: number;
+  exam_id: number;
   room_code: string;
   exam_name: string;
   course_name: string;
@@ -193,6 +194,26 @@ export interface ActiveRoomSummary {
 
 export class ProctoringRoomService {
   constructor(private pg: Pool) {}
+
+  private async findExistingOpenRoom(examId: number, teacherId: number): Promise<Room | null> {
+    const result = await this.pg.query<Room>(
+      `SELECT *
+       FROM proctoring_rooms
+       WHERE exam_id = $1
+       AND teacher_id = $2
+       AND status IN ('created', 'activated')
+       ORDER BY
+         CASE status
+           WHEN 'activated' THEN 0
+           ELSE 1
+         END,
+         created_at DESC
+       LIMIT 1`,
+      [examId, teacherId]
+    );
+
+    return result.rows[0] ?? null;
+  }
 
   /**
    * Generate a random 8-character uppercase invite code
@@ -240,6 +261,13 @@ export class ProctoringRoomService {
       throw new NotEnrolledError(teacherId, examId);
     }
 
+    // Reuse an existing open room for the same teacher/exam instead of failing on
+    // the database uniqueness guard. This keeps "Create room" idempotent in the UI.
+    const existingOpenRoom = await this.findExistingOpenRoom(examId, teacherId);
+    if (existingOpenRoom) {
+      return existingOpenRoom;
+    }
+
     // 3. Check capacity (count enrolled students for this exam)
     const capacityResult = await this.pg.query<{ count: string }>(
       `SELECT COUNT(DISTINCT ea.user_id) as count
@@ -283,14 +311,25 @@ export class ProctoringRoomService {
     }
 
     // 5. Insert room
-    const insertResult = await this.pg.query<Room>(
-      `INSERT INTO proctoring_rooms (exam_id, teacher_id, room_code, status, capacity)
-       VALUES ($1, $2, $3, 'created', $4)
-       RETURNING *`,
-      [examId, teacherId, roomCode, capacity]
-    );
+    try {
+      const insertResult = await this.pg.query<Room>(
+        `INSERT INTO proctoring_rooms (exam_id, teacher_id, room_code, status, capacity)
+         VALUES ($1, $2, $3, 'created', $4)
+         RETURNING *`,
+        [examId, teacherId, roomCode, capacity]
+      );
 
-    return insertResult.rows[0];
+      return insertResult.rows[0];
+    } catch (error: any) {
+      if (error.code === '23505') {
+        const racedRoom = await this.findExistingOpenRoom(examId, teacherId);
+        if (racedRoom) {
+          return racedRoom;
+        }
+      }
+
+      throw error;
+    }
   }
 
   /**
@@ -325,6 +364,7 @@ export class ProctoringRoomService {
     const result = await this.pg.query<ActiveRoomSummary>(
       `SELECT
          pr.id,
+         pr.exam_id,
          pr.room_code,
          e.exam_name,
          e.course_name,
@@ -332,12 +372,10 @@ export class ProctoringRoomService {
          pr.capacity,
          pr.created_at,
          pr.activated_at,
-         COUNT(DISTINCT ps.attempt_id) as student_count
+         COUNT(DISTINCT prs.id) as student_count
        FROM proctoring_rooms pr
        JOIN exams e ON pr.exam_id = e.id
-       LEFT JOIN proctoring_sessions ps ON ps.attempt_id IN (
-         SELECT ea.id FROM exam_attempts ea WHERE ea.exam_id = pr.exam_id
-       )
+       LEFT JOIN proctoring_room_students prs ON prs.room_id = pr.id
        WHERE pr.teacher_id = $1
        AND pr.status = 'activated'
        GROUP BY pr.id, e.exam_name, e.course_name, e.duration_minutes, pr.created_at, pr.activated_at
@@ -371,6 +409,10 @@ export class ProctoringRoomService {
     }
 
     // 3. Validate state transition
+    if (room.status === 'activated') {
+      return room;
+    }
+
     if (room.status !== 'created') {
       throw new InvalidStateTransitionError(room.status, 'activated');
     }

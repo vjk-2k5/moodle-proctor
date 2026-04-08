@@ -125,6 +125,7 @@ export interface TeacherExam {
 
 export interface ProctoringRoomSummary {
   id: number;
+  examId: number;
   roomCode: string;
   examName: string;
   courseName: string;
@@ -155,6 +156,7 @@ export interface BackendError {
 class BackendAPIClient {
   private baseUrl: string;
   private token: string | null = null;
+  private tokenRecoveryPromise: Promise<string | null> | null = null;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
@@ -177,13 +179,60 @@ class BackendAPIClient {
     }
   }
 
+  private async ensureToken(): Promise<string | null> {
+    if (this.token || typeof window === 'undefined') {
+      return this.token;
+    }
+
+    const storedToken = window.localStorage.getItem('auth_token');
+    if (storedToken) {
+      this.token = storedToken;
+      return storedToken;
+    }
+
+    if (!this.tokenRecoveryPromise) {
+      this.tokenRecoveryPromise = fetch('/api/auth/backend-session', {
+        credentials: 'include',
+      })
+        .then(async response => {
+          if (!response.ok) {
+            return null;
+          }
+
+          const data = (await response.json().catch(() => ({}))) as {
+            authenticated?: boolean;
+            token?: string;
+          };
+
+          if (data.authenticated && data.token) {
+            this.setToken(data.token);
+            return data.token;
+          }
+
+          return null;
+        })
+        .finally(() => {
+          this.tokenRecoveryPromise = null;
+        });
+    }
+
+    return this.tokenRecoveryPromise;
+  }
+
   private async request<T>(
     endpoint: string,
     options?: RequestInit
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
     const headers = new Headers(options?.headers);
-    headers.set('Content-Type', 'application/json');
+
+    await this.ensureToken();
+
+    if (options?.body !== undefined && options?.body !== null) {
+      headers.set('Content-Type', 'application/json');
+    } else {
+      headers.delete('Content-Type');
+    }
 
     if (this.token) {
       headers.set('Authorization', `Bearer ${this.token}`);

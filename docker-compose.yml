@@ -116,6 +116,10 @@ services:
       - DATABASE_URL=postgresql://proctor_user:proctor_pass@postgres:5432/moodle_proctor
       - MOODLE_BASE_URL=http://moodle:8080
       - MOODLE_SERVICE=moodle_mobile_app
+      - BACKEND_URL=http://localhost:5000
+      - LTI_CONSUMER_KEY=moodle
+      - LTI_CONSUMER_SECRET=secret
+      - LTI_DISABLE_SIGNATURE_VALIDATION=true
       - JWT_SECRET=826f192d8d3a2bc65dfd9fd7becdda3b865c844886b317f1e7da6ec174cf2a60
       - AI_SERVICE_URL=ws://ai-proctoring:8000/proctor
       - AI_SERVICE_SHARED_SECRET=e609b393fd614dd4a49a07a45bf63c98deaad74df7946bf89147bc44acaf6546

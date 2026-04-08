@@ -218,7 +218,7 @@ export default fp(async (fastify: FastifyInstance) => {
         `SELECT r.id, r.room_code, r.capacity, r.status,
                 COUNT(e.id) as current_enrolled
          FROM proctoring_rooms r
-         LEFT JOIN room_enrollments e ON e.room_id = r.id
+         LEFT JOIN proctoring_room_students e ON e.room_id = r.id
          WHERE r.room_code = $1
          GROUP BY r.id`,
         [code.toUpperCase()]
@@ -422,6 +422,7 @@ export default fp(async (fastify: FastifyInstance) => {
           success: true,
           data: rooms.map(room => ({
             id: room.id,
+            examId: room.exam_id,
             roomCode: room.room_code,
             examName: room.exam_name,
             courseName: room.course_name,

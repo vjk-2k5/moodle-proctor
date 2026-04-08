@@ -25,9 +25,13 @@ export async function ensureRoomSchema(client: QueryableClient): Promise<void> {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         activated_at TIMESTAMP WITH TIME ZONE,
         closed_at TIMESTAMP WITH TIME ZONE,
-        CONSTRAINT valid_room_status CHECK (status IN ('created', 'activated', 'closed')),
-        UNIQUE(exam_id, teacher_id, status)
+        CONSTRAINT valid_room_status CHECK (status IN ('created', 'activated', 'closed'))
       );
+    `);
+
+    await client.query(`
+      ALTER TABLE proctoring_rooms
+      DROP CONSTRAINT IF EXISTS proctoring_rooms_exam_id_teacher_id_status_key;
     `);
 
     await client.query(`
@@ -35,6 +39,9 @@ export async function ensureRoomSchema(client: QueryableClient): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_rooms_teacher_status ON proctoring_rooms(teacher_id, status);
       CREATE INDEX IF NOT EXISTS idx_rooms_exam_status ON proctoring_rooms(exam_id, status);
       CREATE INDEX IF NOT EXISTS idx_rooms_status_created ON proctoring_rooms(status, created_at);
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_rooms_exam_teacher_open
+      ON proctoring_rooms(exam_id, teacher_id)
+      WHERE status IN ('created', 'activated');
     `);
 
     await client.query(`

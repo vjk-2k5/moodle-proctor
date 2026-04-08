@@ -32,10 +32,16 @@ function LoginPageContent() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ username: identifier, password }),
       });
-      const data = (await res.json().catch(() => ({}))) as any;
+      const data = (await res.json().catch(() => ({}))) as { error?: string; token?: string };
       if (!res.ok) {
-        throw new Error(typeof data?.error === "string" ? data.error : "Login failed");
+        throw new Error(typeof data.error === "string" ? data.error : "Login failed");
       }
+
+      if (!data.token) {
+        throw new Error("Dashboard session token was not created");
+      }
+
+      window.localStorage.setItem("auth_token", data.token);
       router.push(nextPath);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
