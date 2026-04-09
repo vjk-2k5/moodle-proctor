@@ -1,32 +1,29 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { ScanUploadSession, UploadReceipt } from '@/lib/scanSession';
 
 export interface ScannedPage {
   id: string;
-  dataUrl: string;       // full-res JPEG data URL
-  thumbnail: string;     // downscaled thumbnail for preview
+  dataUrl: string;
+  thumbnail: string;
   capturedAt: number;
 }
 
 interface ScanStore {
-  // ── Session ───────────────────────────────────────────────────────────────
   sessionToken: string | null;
   studentId: string | null;
+  session: ScanUploadSession | null;
   uploadId: string | null;
-
-  // ── Pages ─────────────────────────────────────────────────────────────────
+  uploadReceipt: UploadReceipt | null;
   pages: ScannedPage[];
-
-  // ── Upload ────────────────────────────────────────────────────────────────
   uploadStatus: 'idle' | 'uploading' | 'success' | 'error';
-  uploadProgress: number; // 0-100
-
-  // ── Actions ───────────────────────────────────────────────────────────────
-  setSession: (token: string, studentId?: string) => void;
+  uploadProgress: number;
+  setSession: (session: ScanUploadSession) => void;
   addPage: (dataUrl: string, thumbnail: string) => void;
   removePage: (id: string) => void;
   reorderPages: (pages: ScannedPage[]) => void;
   setUploadId: (id: string) => void;
+  setUploadResult: (uploadId: string, receipt: UploadReceipt | null) => void;
   setUploadStatus: (status: ScanStore['uploadStatus'], progress?: number) => void;
   reset: () => void;
 }
@@ -34,7 +31,9 @@ interface ScanStore {
 const initialState = {
   sessionToken: null,
   studentId: null,
+  session: null,
   uploadId: null,
+  uploadReceipt: null,
   pages: [],
   uploadStatus: 'idle' as const,
   uploadProgress: 0,
@@ -45,8 +44,12 @@ export const useScanStore = create<ScanStore>()(
     (set) => ({
       ...initialState,
 
-      setSession: (token, studentId) =>
-        set({ sessionToken: token, studentId: studentId ?? null }),
+      setSession: (session) =>
+        set({
+          sessionToken: session.token,
+          studentId: session.student.studentId ?? null,
+          session,
+        }),
 
       addPage: (dataUrl, thumbnail) =>
         set((s) => ({
@@ -68,6 +71,9 @@ export const useScanStore = create<ScanStore>()(
 
       setUploadId: (id) => set({ uploadId: id }),
 
+      setUploadResult: (uploadId, receipt) =>
+        set({ uploadId, uploadReceipt: receipt }),
+
       setUploadStatus: (uploadStatus, progress) =>
         set({ uploadStatus, uploadProgress: progress ?? 0 }),
 
@@ -75,10 +81,10 @@ export const useScanStore = create<ScanStore>()(
     }),
     {
       name: 'proctor-scan-session',
-      // Only persist the session token and pages between reloads
       partialize: (s) => ({
         sessionToken: s.sessionToken,
         studentId: s.studentId,
+        session: s.session,
         pages: s.pages,
       }),
     }

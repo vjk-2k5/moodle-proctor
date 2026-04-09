@@ -1,8 +1,9 @@
-const { app, BrowserWindow, ipcMain } = require('electron')
+const { app, BrowserWindow, ipcMain, safeStorage } = require('electron')
 const { execFile, spawn } = require('child_process')
 const fs = require('fs')
 const net = require('net')
 const path = require('path')
+const { pathToFileURL } = require('url')
 
 let mainWindow
 let monitoringInterval = null
@@ -17,13 +18,27 @@ let devBlockedAppMonitoringEnabled = !isDevelopmentMode
 
 const AI_PROCTORING_PORT = 8000
 const AI_PROCTORING_HOST = '127.0.0.1'
+const BACKEND_API_BASE_URL = process.env.BACKEND_API_URL || 'http://localhost:5000'
 const AI_PROCTORING_DIR = path.join(__dirname, '..', 'ai_proctoring')
 const AI_PROCTORING_ENTRYPOINT = 'main.py'
+const QR_CODE_MODULE_PATH = path.join(
+  __dirname,
+  '..',
+  'Scanning-and-Uploading',
+  'unique-id-genration-for-students',
+  'node_modules',
+  'qrcode'
+)
+const PROTOCOL_NAME = 'proctor'
+const AUTO_JOIN_QUERY_VALUES = new Set(['1', 'true', 'yes'])
 const RENDERER_CHANNELS = {
   aiProctoringStatus: 'ai-proctoring-status',
   networkAppBlocked: 'network-app-blocked',
   fullscreenExited: 'fullscreen-exited'
 }
+
+let pendingRoomLaunch = null
+let currentScanSession = null
 
 const BLOCKED_APPS_CONFIG_PATH = path.join(
   __dirname,
@@ -59,6 +74,250 @@ const FALLBACK_BLOCKED_NETWORK_APPS = [
   'whatsappbusiness',
   'zoom'
 ]
+
+function normalizeRoomCode (roomCode) {
+  return String(roomCode || '')
+    .replace(/\s/g, '')
+    .toUpperCase()
+}
+
+function findProtocolUrl (argv = []) {
+  return argv.find(
+    argument =>
+      typeof argument === 'string' &&
+      argument.toLowerCase().startsWith(`${PROTOCOL_NAME}://`)
+  ) || null
+}
+
+function parseRoomLaunch (rawUrl) {
+  if (!rawUrl) {
+    return null
+  }
+
+  try {
+    const parsedUrl = new URL(rawUrl)
+
+    if (parsedUrl.protocol !== `${PROTOCOL_NAME}:`) {
+      return null
+    }
+
+    let roomCode = ''
+
+    if (parsedUrl.hostname.toLowerCase() === 'room') {
+      roomCode = parsedUrl.pathname.replace(/^\/+/, '')
+    } else if (parsedUrl.searchParams.get('code')) {
+      roomCode = parsedUrl.searchParams.get('code')
+    } else {
+      const pathSegments = parsedUrl.pathname
+        .split('/')
+        .map(segment => segment.trim())
+        .filter(Boolean)
+      roomCode = pathSegments[pathSegments.length - 1] || ''
+    }
+
+    const normalizedRoomCode = normalizeRoomCode(roomCode)
+
+    if (!normalizedRoomCode) {
+      return null
+    }
+
+    const autoJoinValue = String(parsedUrl.searchParams.get('autoJoin') || '')
+      .trim()
+      .toLowerCase()
+
+    return {
+      roomCode: normalizedRoomCode,
+      studentName: String(parsedUrl.searchParams.get('name') || '').trim(),
+      studentEmail: String(parsedUrl.searchParams.get('email') || '').trim(),
+      token: String(parsedUrl.searchParams.get('token') || '').trim(), // NEW: Extract JWT token
+      autoJoin: AUTO_JOIN_QUERY_VALUES.has(autoJoinValue)
+    }
+  } catch (error) {
+    console.error('Failed to parse room launch URL:', error.message)
+    return null
+  }
+}
+
+function registerProtocolClient () {
+  try {
+    if (process.defaultApp && process.argv.length >= 2) {
+      return app.setAsDefaultProtocolClient(
+        PROTOCOL_NAME,
+        process.execPath,
+        [path.resolve(process.argv[1])]
+      )
+    }
+
+    return app.setAsDefaultProtocolClient(PROTOCOL_NAME)
+  } catch (error) {
+    console.error('Failed to register protocol client:', error.message)
+    return false
+  }
+}
+
+function buildRendererUrl (pageName, searchParams = {}) {
+  const pageUrl = pathToFileURL(path.join(__dirname, 'renderer', pageName))
+
+  for (const [key, value] of Object.entries(searchParams)) {
+    if (value === undefined || value === null || value === '') {
+      continue
+    }
+
+    pageUrl.searchParams.set(key, String(value))
+  }
+
+  return pageUrl.toString()
+}
+
+function loadRendererPage (pageName, searchParams = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return
+  }
+
+  return mainWindow.loadURL(buildRendererUrl(pageName, searchParams))
+}
+
+let qrCodeModule = null
+
+function loadQrCodeModule () {
+  if (qrCodeModule) {
+    return qrCodeModule
+  }
+
+  qrCodeModule = require(QR_CODE_MODULE_PATH)
+  return qrCodeModule
+}
+
+async function buildScanSessionRendererPayload (payload) {
+  if (!payload || typeof payload !== 'object') {
+    return null
+  }
+
+  const nextPayload = {
+    ...payload
+  }
+
+  if (!nextPayload.mobileEntryUrl) {
+    return nextPayload
+  }
+
+  try {
+    const qrcode = loadQrCodeModule()
+    nextPayload.qrCodeDataUrl = await qrcode.toDataURL(nextPayload.mobileEntryUrl, {
+      errorCorrectionLevel: 'L',
+      margin: 2,
+      width: 320,
+      color: {
+        dark: '#101828',
+        light: '#ffffff'
+      }
+    })
+  } catch (error) {
+    console.error('Failed to generate upload session QR code:', error.message)
+  }
+
+  return nextPayload
+}
+
+async function fetchScanSessionSnapshot (token) {
+  const normalizedToken = String(token || '').trim()
+
+  if (!normalizedToken) {
+    return null
+  }
+
+  const response = await fetch(
+    `${BACKEND_API_BASE_URL}/api/scan/sessions/${encodeURIComponent(normalizedToken)}`,
+    {
+      method: 'GET',
+      cache: 'no-store'
+    }
+  )
+
+  const payload = await response.json().catch(() => ({}))
+
+  if (!response.ok && !payload?.data) {
+    throw new Error(payload?.error || `Failed to refresh scan session (${response.status})`)
+  }
+
+  return payload?.data || null
+}
+
+function focusMainWindow () {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore()
+  }
+
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+function loadPendingRoomLaunch () {
+  if (!pendingRoomLaunch) {
+    return
+  }
+
+  const roomLaunch = pendingRoomLaunch
+  pendingRoomLaunch = null
+
+  loadRendererPage('join.html', {
+    code: roomLaunch.roomCode,
+    name: roomLaunch.studentName,
+    email: roomLaunch.studentEmail,
+    token: roomLaunch.token, // NEW: Pass JWT token to join page
+    autoJoin: roomLaunch.autoJoin ? '1' : undefined
+  })
+}
+
+function queueRoomLaunch (rawUrl) {
+  const parsedRoomLaunch = parseRoomLaunch(rawUrl)
+
+  if (!parsedRoomLaunch) {
+    return false
+  }
+
+  pendingRoomLaunch = parsedRoomLaunch
+
+  if (!app.isReady()) {
+    return true
+  }
+
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow()
+    return true
+  }
+
+  focusMainWindow()
+  loadPendingRoomLaunch()
+  return true
+}
+
+pendingRoomLaunch = parseRoomLaunch(findProtocolUrl(process.argv))
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+
+if (!hasSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const protocolUrl = findProtocolUrl(argv)
+
+    if (protocolUrl && queueRoomLaunch(protocolUrl)) {
+      return
+    }
+
+    focusMainWindow()
+  })
+}
+
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  queueRoomLaunch(url)
+})
 
 function loadBlockedNetworkApps () {
   try {
@@ -378,14 +637,30 @@ function createWindow () {
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true
+      contextIsolation: true,
+      nodeIntegration: false
     }
   })
 
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'login.html'))
+  mainWindow.on('closed', () => {
+    mainWindow = null
+  })
+
+  if (pendingRoomLaunch) {
+    loadPendingRoomLaunch()
+    return
+  }
+
+  loadRendererPage('login.html')
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  registerProtocolClient()
+
+  if (!mainWindow) {
+    createWindow()
+  }
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -447,6 +722,44 @@ ipcMain.handle('get-exam-dev-settings', () => ({
     : true
 }))
 
+ipcMain.handle('safe-storage-is-available', () => safeStorage.isEncryptionAvailable())
+
+ipcMain.handle('safe-storage-encrypt-string', (_event, value) => {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Safe storage encryption is unavailable on this device.')
+  }
+
+  return safeStorage.encryptString(String(value || '')).toString('base64')
+})
+
+ipcMain.handle('safe-storage-decrypt-string', (_event, value) => {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Safe storage decryption is unavailable on this device.')
+  }
+
+  return safeStorage.decryptString(Buffer.from(String(value || ''), 'base64'))
+})
+
+ipcMain.handle('get-scan-session', () => currentScanSession)
+
+ipcMain.handle('refresh-scan-session', async (_event, token) => {
+  const nextToken = String(token || currentScanSession?.token || '').trim()
+
+  if (!nextToken) {
+    return null
+  }
+
+  const latestSession = await fetchScanSessionSnapshot(nextToken)
+
+  if (!latestSession) {
+    currentScanSession = null
+    return null
+  }
+
+  currentScanSession = await buildScanSessionRendererPayload(latestSession)
+  return currentScanSession
+})
+
 ipcMain.handle('set-blocked-app-monitoring-enabled', (_, isEnabled) => {
   if (!isDevelopmentMode) {
     return {
@@ -476,4 +789,14 @@ app.on('browser-window-created', (_, window) => {
 app.on('before-quit', () => {
   stopExamMonitoring()
   stopAiProctoringService()
+})
+
+// Open scanner page inside the existing main window
+ipcMain.on('open-scanner', async (_event, payload) => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return
+  }
+
+  currentScanSession = await buildScanSessionRendererPayload(payload)
+  loadRendererPage('upload-session.html')
 })

@@ -28,7 +28,7 @@ export function useSSE(filters?: { examId?: number; userId?: number }) {
   const eventSourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
-    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 
     // Build URL with filters
     const params = new URLSearchParams();
@@ -39,7 +39,9 @@ export function useSSE(filters?: { examId?: number; userId?: number }) {
     const url = `${BACKEND_URL}/api/teacher/events${queryString ? `?${queryString}` : ''}`;
 
     // Create EventSource connection
-    const eventSource = new EventSource(url);
+    const eventSource = new EventSource(url, {
+      withCredentials: true,
+    });
     eventSourceRef.current = eventSource;
 
     // Connection opened

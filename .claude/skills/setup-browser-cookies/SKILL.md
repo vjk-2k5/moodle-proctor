@@ -1,0 +1,1 @@
+/home/aryaniyaps/web-projects/moodle-proctor/.claude/skills/gstack/setup-browser-cookies/SKILL.md

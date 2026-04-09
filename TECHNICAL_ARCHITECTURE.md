@@ -19,7 +19,7 @@ The Moodle-Proctor system is a comprehensive online examination proctoring platf
 │                         │  PostgreSQL    │                              │
 │                         │  Database      │                              │
 │                         └───────┬────────┘                              │
-│                                 │                                       │
+│                                 │                                 j      │
 │  ┌──────────────┐      ┌────────┴────────┐      ┌──────────────┐     │
 │  │   Moodle     │      │   WebSocket     │      │   AI         │     │
 │  │   LMS        │      │   Proxy         │      │   Proctoring │     │

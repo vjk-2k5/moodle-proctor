@@ -5,11 +5,20 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
-import { backendAPI } from '@/lib/backend';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  backendAPI,
+  ProctoringRoomSummary,
+  TeacherAnswerSheetUpload,
+  TeacherAttempt,
+  TeacherExam,
+  TeacherReport,
+  TeacherStats,
+  TeacherStudent
+} from '@/lib/backend';
 
 export function useTeacherStats(filters?: { examId?: number }) {
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<TeacherStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -38,10 +47,12 @@ export function useTeacherStats(filters?: { examId?: number }) {
 export function useAttempts(query: {
   examId?: number;
   status?: string;
+  search?: string;
+  includeHidden?: boolean;
   limit?: number;
   offset?: number;
 }) {
-  const [attempts, setAttempts] = useState<any[]>([]);
+  const [attempts, setAttempts] = useState<TeacherAttempt[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -64,7 +75,7 @@ export function useAttempts(query: {
 
   useEffect(() => {
     fetchAttempts();
-  }, [query.examId, query.status, query.limit, query.offset]);
+  }, [query.examId, query.status, query.search, query.includeHidden, query.limit, query.offset]);
 
   return { attempts, total, isLoading, error, refetch: fetchAttempts };
 }
@@ -74,7 +85,7 @@ export function useStudents(query: {
   examId?: number;
   limit?: number;
 }) {
-  const [students, setStudents] = useState<any[]>([]);
+  const [students, setStudents] = useState<TeacherStudent[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -109,7 +120,7 @@ export function useReports(query: {
   minViolations?: number;
   limit?: number;
 }) {
-  const [reports, setReports] = useState<any[]>([]);
+  const [reports, setReports] = useState<TeacherReport[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -138,7 +149,7 @@ export function useReports(query: {
 }
 
 export function useExams(filters?: { examId?: number }) {
-  const [exams, setExams] = useState<any[]>([]);
+  const [exams, setExams] = useState<TeacherExam[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -164,4 +175,66 @@ export function useExams(filters?: { examId?: number }) {
   }, [filters?.examId]);
 
   return { exams, total, isLoading, error, refetch: fetchExams };
+}
+
+export function useAnswerSheetUploads(query: {
+  examId?: number;
+  search?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const [uploads, setUploads] = useState<TeacherAnswerSheetUpload[]>([]);
+  const [total, setTotal] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchUploads = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await backendAPI.getAnswerSheetUploads(query);
+      if (response.success) {
+        setUploads(response.data.uploads);
+        setTotal(response.data.total);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to fetch answer sheet uploads'));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUploads();
+  }, [query.examId, query.search, query.status, query.limit, query.offset]);
+
+  return { uploads, total, isLoading, error, refetch: fetchUploads };
+}
+
+export function useActiveRooms() {
+  const [rooms, setRooms] = useState<ProctoringRoomSummary[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchRooms = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await backendAPI.getActiveRooms();
+      if (response.success) {
+        setRooms(response.data);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to fetch active rooms'));
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchRooms();
+  }, [fetchRooms]);
+
+  return { rooms, isLoading, error, refetch: fetchRooms };
 }

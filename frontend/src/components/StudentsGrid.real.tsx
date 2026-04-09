@@ -8,7 +8,7 @@
 import { useAttempts } from '@/hooks/useTeacherData';
 import { useSSE, useAutoRefresh } from '@/hooks/useSSE';
 import { StudentCard } from './StudentCard';
-import { StatusBadge } from './StatusBadge';
+import type { Student, StudentStatus } from '@/types';
 
 export function StudentsGridReal() {
   // Fetch active attempts (students currently taking exams)
@@ -50,15 +50,22 @@ export function StudentsGridReal() {
   }
 
   // Transform backend attempts to student format
-  const students = attempts.map((attempt: any) => ({
-    id: attempt.id.toString(),
-    name: `${attempt.firstName} ${attempt.lastName}`,
-    exam: attempt.examName,
-    status: attempt.violationCount > 5 ? 'suspicious' : attempt.violationCount > 0 ? 'warning' : 'normal',
-    connection: 'Good', // Would come from proctoring session data
-    violationCount: attempt.violationCount,
-    startedAt: attempt.startedAt,
-  }));
+  const students: Student[] = attempts.map((attempt: any) => {
+    const status: StudentStatus =
+      attempt.violationCount > 5
+        ? 'suspicious'
+        : attempt.violationCount > 0
+        ? 'warning'
+        : 'normal';
+
+    return {
+      id: String(attempt.id),
+      name: `${attempt.firstName} ${attempt.lastName}`.trim(),
+      exam: attempt.examName,
+      status,
+      connection: 'Good',
+    };
+  });
 
   return (
     <section className="flex flex-col gap-6 px-4">

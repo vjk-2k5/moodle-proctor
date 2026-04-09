@@ -4,6 +4,7 @@
 // ============================================================================
 
 import { Pool } from 'pg';
+import path from 'path';
 import type {
   ExamDetails,
   ExamAttempt,
@@ -15,6 +16,7 @@ import type {
   AttemptRow
 } from './exam.schema';
 import { createStudentService } from '../student/student.service';
+import { getQuizByExamMapping } from '../moodle-quiz/moodle-quiz.service';
 
 export class ExamService {
   constructor(private pg: Pool) {
@@ -31,7 +33,9 @@ export class ExamService {
     const examResult = await this.pg.query<ExamRow>(
       `SELECT
         id, moodle_course_id, moodle_course_module_id, exam_name, course_name,
-        duration_minutes, max_warnings, question_paper_path
+        description, instructions, duration_minutes, max_warnings, room_capacity,
+        ai_proctoring_enabled, manual_proctoring_enabled, auto_submit_on_warning_limit,
+        capture_snapshots, allow_student_rejoin, questions_json, question_paper_path
       FROM exams
       WHERE id = $1`,
       [examId]
@@ -94,7 +98,9 @@ export class ExamService {
     // Get exam details
     const examResult = await this.pg.query<ExamRow>(
       `SELECT id, moodle_course_id, moodle_course_module_id, exam_name, course_name,
-       duration_minutes, max_warnings, question_paper_path
+       description, instructions, duration_minutes, max_warnings, room_capacity,
+       ai_proctoring_enabled, manual_proctoring_enabled, auto_submit_on_warning_limit,
+       capture_snapshots, allow_student_rejoin, questions_json, question_paper_path
       FROM exams WHERE id = $1`,
       [examId]
     );
@@ -142,6 +148,26 @@ export class ExamService {
     } finally {
       client.release();
     }
+  }
+
+  async terminateActiveAttemptsForExam(
+    userId: number,
+    examId: number,
+    submissionReason: string = 'superseded_by_new_room_session'
+  ): Promise<number> {
+    const result = await this.pg.query<{ id: number }>(
+      `UPDATE exam_attempts
+       SET status = 'terminated',
+           submitted_at = NOW(),
+           submission_reason = $3
+       WHERE user_id = $1
+       AND exam_id = $2
+       AND status = 'in_progress'
+       RETURNING id`,
+      [userId, examId, submissionReason]
+    );
+
+    return result.rowCount || 0;
   }
 
   /**
@@ -286,10 +312,12 @@ export class ExamService {
    * Get question summary for an exam
    */
   async getQuestionsSummary(examId: number, _userId: number): Promise<QuestionsSummaryResponse> {
-    // For now, return a placeholder
-    // In production, this would fetch from Moodle or question bank
     const examResult = await this.pg.query<ExamRow>(
-      'SELECT * FROM exams WHERE id = $1',
+      `SELECT id, moodle_course_id, moodle_course_module_id, exam_name, course_name,
+       description, instructions, duration_minutes, max_warnings, room_capacity,
+       ai_proctoring_enabled, manual_proctoring_enabled, auto_submit_on_warning_limit,
+       capture_snapshots, allow_student_rejoin, questions_json, question_paper_path
+       FROM exams WHERE id = $1`,
       [examId]
     );
 
@@ -298,15 +326,80 @@ export class ExamService {
     }
 
     const exam = examResult.rows[0];
+    const syncedQuiz = exam.moodle_course_id && exam.moodle_course_module_id
+      ? await getQuizByExamMapping(
+          this.pg,
+          exam.moodle_course_id,
+          exam.moodle_course_module_id
+        ).catch(() => null)
+      : null;
+
+    if (syncedQuiz && syncedQuiz.questions.length > 0) {
+      const questions = syncedQuiz.questions.map((question, index) => ({
+        id: question.id,
+        questionNumber: index + 1,
+        text: this.toPlainText(question.questionText || question.name),
+        type: question.qtype,
+        marks: question.defaultMark || 1
+      }));
+
+      return {
+        success: true,
+        data: {
+          examId: exam.id,
+          examName: exam.exam_name,
+          totalQuestions: questions.length,
+          totalMarks: questions.reduce((sum, question) => sum + question.marks, 0),
+          questions
+        }
+      };
+    }
+
+    const teacherQuestions = Array.isArray(exam.questions_json)
+      ? exam.questions_json
+      : [];
+
+    if (teacherQuestions.length > 0) {
+      const questions = teacherQuestions.map((question, index) => ({
+        id: question.id || `${exam.id}-${index + 1}`,
+        questionNumber: index + 1,
+        text: this.toPlainText(question.prompt),
+        type: question.type || 'short_answer',
+        marks: Number(question.marks) || 0
+      }));
+
+      return {
+        success: true,
+        data: {
+          examId: exam.id,
+          examName: exam.exam_name,
+          totalQuestions: questions.length,
+          totalMarks: questions.reduce((sum, question) => sum + question.marks, 0),
+          questions
+        }
+      };
+    }
+
+    const derivedQuestionPaperLabel = exam.question_paper_path
+      ? this.toPlainText(path.basename(exam.question_paper_path).replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '))
+      : '';
 
     return {
       success: true,
       data: {
         examId: exam.id,
         examName: exam.exam_name,
-        totalQuestions: 0, // Would be fetched from Moodle
+        totalQuestions: derivedQuestionPaperLabel ? 1 : 0,
         totalMarks: 0,
-        questions: []
+        questions: derivedQuestionPaperLabel
+          ? [{
+              id: exam.id,
+              questionNumber: 1,
+              text: `${derivedQuestionPaperLabel} (question paper PDF)`,
+              type: 'document',
+              marks: 0
+            }]
+          : []
       }
     };
   }
@@ -321,8 +414,17 @@ export class ExamService {
       moodleCourseModuleId: row.moodle_course_module_id,
       examName: row.exam_name,
       courseName: row.course_name,
+      description: row.description ?? null,
+      instructions: row.instructions ?? null,
       durationMinutes: row.duration_minutes,
       maxWarnings: row.max_warnings,
+      roomCapacity: row.room_capacity ?? 15,
+      enableAiProctoring: row.ai_proctoring_enabled ?? true,
+      enableManualProctoring: row.manual_proctoring_enabled ?? true,
+      autoSubmitOnWarningLimit: row.auto_submit_on_warning_limit ?? true,
+      captureSnapshots: row.capture_snapshots ?? true,
+      allowStudentRejoin: row.allow_student_rejoin ?? true,
+      questions: Array.isArray(row.questions_json) ? row.questions_json : [],
       questionPaperPath: row.question_paper_path
     };
   }
@@ -341,6 +443,15 @@ export class ExamService {
       violationCount: row.violation_count,
       submissionReason: row.submission_reason
     };
+  }
+
+  private toPlainText(value: string): string {
+    return value
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   /**

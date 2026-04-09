@@ -10,6 +10,8 @@ export interface ListAttemptsQuery {
   examId?: number;
   status?: 'not_started' | 'in_progress' | 'submitted' | 'terminated';
   userId?: number;
+  search?: string;
+  includeHidden?: boolean;
   startDate?: string;
   endDate?: string;
   limit?: number;
@@ -35,9 +37,55 @@ export interface ListReportsQuery {
   offset?: number;
 }
 
+export interface ListAnswerSheetUploadsQuery {
+  examId?: number;
+  search?: string;
+  status?: 'awaiting_upload' | 'upload_in_progress' | 'uploaded' | 'expired';
+  limit?: number;
+  offset?: number;
+}
+
 export interface GetStatsQuery {
   timeRange?: 'hour' | 'day' | 'week' | 'month' | 'all';
   examId?: number;
+}
+
+export interface TeacherExamQuestion {
+  id: string;
+  prompt: string;
+  type: string;
+  marks: number;
+  options: string[];
+  answer: string | null;
+}
+
+export interface TeacherExamQuestionPaperUpload {
+  fileName: string;
+  mimeType: string;
+  contentBase64: string;
+}
+
+export interface UpsertTeacherExamRequest {
+  moodleCourseId?: number | null;
+  moodleCourseModuleId?: number | null;
+  examName: string;
+  courseName: string;
+  description?: string | null;
+  instructions?: string | null;
+  durationMinutes: number;
+  maxWarnings: number;
+  roomCapacity: number;
+  enableAiProctoring: boolean;
+  enableManualProctoring: boolean;
+  autoSubmitOnWarningLimit: boolean;
+  captureSnapshots: boolean;
+  allowStudentRejoin: boolean;
+  answerSheetUploadWindowMinutes: number;
+  scheduledStartAt?: string | null;
+  scheduledEndAt?: string | null;
+  questions: TeacherExamQuestion[];
+  questionPaper?: TeacherExamQuestionPaperUpload | null;
+  removeQuestionPaper?: boolean;
 }
 
 // ============================================================================
@@ -46,13 +94,28 @@ export interface GetStatsQuery {
 
 export interface TeacherExam {
   id: number;
-  moodleCourseId: number;
-  moodleCourseModuleId: number;
+  moodleCourseId: number | null;
+  moodleCourseModuleId: number | null;
   examName: string;
   courseName: string;
+  description: string | null;
+  instructions: string | null;
   durationMinutes: number;
   maxWarnings: number;
+  roomCapacity: number;
+  enableAiProctoring: boolean;
+  enableManualProctoring: boolean;
+  autoSubmitOnWarningLimit: boolean;
+  captureSnapshots: boolean;
+  allowStudentRejoin: boolean;
+  answerSheetUploadWindowMinutes: number;
+  questionPaperPath: string | null;
+  scheduledStartAt: Date | null;
+  scheduledEndAt: Date | null;
+  questions: TeacherExamQuestion[];
+  createdByTeacherId: number | null;
   createdAt: Date;
+  updatedAt: Date;
   // Aggregated stats
   totalAttempts?: number;
   activeAttempts?: number;
@@ -90,6 +153,8 @@ export interface TeacherAttempt {
   durationMinutes: number;
   maxWarnings: number;
   ipAddress: string;
+  hiddenAt: Date | null;
+  isHidden: boolean;
 }
 
 export interface TeacherAttemptListResponse {
@@ -202,6 +267,42 @@ export interface TeacherReportListResponse {
   data: {
     reports: TeacherReport[];
     total: number;
+  };
+}
+
+export interface TeacherAnswerSheetUpload {
+  id: number;
+  examId: number | null;
+  examName: string;
+  courseName: string | null;
+  attemptId: number | null;
+  attemptReference: string;
+  attemptStatus: string;
+  attemptSubmittedAt: Date | null;
+  attemptSubmissionReason: string | null;
+  attemptViolationCount: number;
+  studentIdentifier: string;
+  studentName: string;
+  studentEmail: string;
+  source: string;
+  status: 'awaiting_upload' | 'upload_in_progress' | 'uploaded' | 'expired';
+  uploadWindowMinutes: number;
+  expiresAt: Date;
+  uploadedAt: Date | null;
+  fileName: string | null;
+  fileSizeBytes: number | null;
+  mimeType: string | null;
+  receiptId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface TeacherAnswerSheetUploadListResponse {
+  success: true;
+  data: {
+    uploads: TeacherAnswerSheetUpload[];
+    total: number;
+    filters: ListAnswerSheetUploadsQuery;
   };
 }
 

@@ -3,7 +3,7 @@
 // Connects frontend to the backend API
 // ============================================================================
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+import { BACKEND_URL } from './config';
 
 // ============================================================================
 // Types
@@ -27,6 +27,218 @@ export interface BackendAuthResponse {
   };
 }
 
+export interface TeacherStats {
+  overview: {
+    totalExams: number;
+    totalAttempts: number;
+    activeAttempts: number;
+    completedAttempts: number;
+    terminatedAttempts: number;
+  };
+  violations: {
+    total: number;
+    inLast24Hours: number;
+    byType: Record<string, number>;
+    bySeverity: {
+      info: number;
+      warning: number;
+    };
+  };
+  students: {
+    total: number;
+    active: number;
+  };
+  exams: {
+    upcoming: number;
+    ongoing: number;
+    completed: number;
+  };
+  timeRange: string;
+  generatedAt: string;
+}
+
+export interface TeacherAttempt {
+  id: number;
+  examId: number;
+  examName: string;
+  courseName: string;
+  userId: number;
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  status: 'not_started' | 'in_progress' | 'submitted' | 'terminated';
+  startedAt: string | null;
+  submittedAt: string | null;
+  submissionReason: string | null;
+  violationCount: number;
+  durationMinutes: number;
+  maxWarnings: number;
+  ipAddress: string;
+  hiddenAt: string | null;
+  isHidden: boolean;
+}
+
+export interface TeacherStudent {
+  id: number;
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+  profileImageUrl?: string | null;
+  lastLoginAt: string | null;
+}
+
+export interface TeacherReport {
+  attemptId: number;
+  examName: string;
+  courseName: string;
+  studentName: string;
+  studentEmail: string;
+  status: string;
+  startedAt: string | null;
+  submittedAt: string | null;
+  submissionReason: string | null;
+  violationCount: number;
+  durationMinutes: number;
+  ipAddress: string;
+  violations: {
+    total: number;
+    byType: Record<string, number>;
+  };
+}
+
+export interface TeacherAnswerSheetUpload {
+  id: number;
+  examId: number | null;
+  examName: string;
+  courseName: string | null;
+  attemptId: number | null;
+  attemptReference: string;
+  attemptStatus: 'not_started' | 'in_progress' | 'submitted' | 'terminated';
+  attemptSubmittedAt: string | null;
+  attemptSubmissionReason: string | null;
+  attemptViolationCount: number;
+  studentIdentifier: string;
+  studentName: string;
+  studentEmail: string;
+  source: string;
+  status: 'awaiting_upload' | 'upload_in_progress' | 'uploaded' | 'expired';
+  uploadWindowMinutes: number;
+  expiresAt: string;
+  uploadedAt: string | null;
+  fileName: string | null;
+  fileSizeBytes: number | null;
+  mimeType: string | null;
+  receiptId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TeacherExam {
+  id: number;
+  moodleCourseId: number | null;
+  moodleCourseModuleId: number | null;
+  examName: string;
+  courseName: string;
+  description: string | null;
+  instructions: string | null;
+  durationMinutes: number;
+  maxWarnings: number;
+  roomCapacity: number;
+  enableAiProctoring: boolean;
+  enableManualProctoring: boolean;
+  autoSubmitOnWarningLimit: boolean;
+  captureSnapshots: boolean;
+  allowStudentRejoin: boolean;
+  answerSheetUploadWindowMinutes?: number;
+  questionPaperPath: string | null;
+  scheduledStartAt: string | null;
+  scheduledEndAt: string | null;
+  questions: TeacherExamQuestion[];
+  createdByTeacherId: number | null;
+  createdAt: string;
+  updatedAt: string;
+  totalAttempts?: number;
+  activeAttempts?: number;
+  completedAttempts?: number;
+}
+
+export interface TeacherExamQuestion {
+  id: string;
+  prompt: string;
+  type: string;
+  marks: number;
+  options: string[];
+  answer: string | null;
+}
+
+export interface TeacherExamQuestionPaperUpload {
+  fileName: string;
+  mimeType: string;
+  contentBase64: string;
+}
+
+export interface TeacherExamPayload {
+  moodleCourseId?: number | null;
+  moodleCourseModuleId?: number | null;
+  examName: string;
+  courseName: string;
+  description?: string | null;
+  instructions?: string | null;
+  durationMinutes: number;
+  maxWarnings: number;
+  roomCapacity: number;
+  enableAiProctoring: boolean;
+  enableManualProctoring: boolean;
+  autoSubmitOnWarningLimit: boolean;
+  captureSnapshots: boolean;
+  allowStudentRejoin: boolean;
+  answerSheetUploadWindowMinutes?: number;
+  scheduledStartAt?: string | null;
+  scheduledEndAt?: string | null;
+  questions: TeacherExamQuestion[];
+  questionPaper?: TeacherExamQuestionPaperUpload | null;
+  removeQuestionPaper?: boolean;
+}
+
+export interface ProctoringRoomSummary {
+  id: number;
+  examId: number;
+  roomCode: string;
+  examName: string;
+  courseName: string;
+  studentCount: number;
+  capacity: number;
+  durationMinutes: number;
+  createdAt: string;
+  activatedAt: string | null;
+}
+
+export interface RoomMonitoringStudent {
+  enrollmentId: number;
+  roomId: number;
+  attemptId: number | null;
+  userId: number | null;
+  studentName: string;
+  studentEmail: string;
+  status: 'not_started' | 'in_progress' | 'submitted' | 'terminated';
+  startedAt: string | null;
+  submittedAt: string | null;
+  ipAddress: string | null;
+  warningCount: number;
+  totalViolationCount: number;
+}
+
+export interface CreatedRoomDetails {
+  roomId: number;
+  roomCode: string;
+  inviteLink: string;
+  examName: string;
+  courseName: string;
+}
+
 export interface BackendError {
   success: false;
   error: string;
@@ -39,6 +251,8 @@ export interface BackendError {
 class BackendAPIClient {
   private baseUrl: string;
   private token: string | null = null;
+  private tokenRecoveryPromise: Promise<string | null> | null = null;
+  private isHandlingUnauthorized = false;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
@@ -61,33 +275,138 @@ class BackendAPIClient {
     }
   }
 
+  private async handleUnauthorized() {
+    this.clearToken();
+
+    if (typeof window === 'undefined' || this.isHandlingUnauthorized) {
+      return;
+    }
+
+    this.isHandlingUnauthorized = true;
+
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      }).catch(() => null);
+    } finally {
+      const nextPath = `${window.location.pathname}${window.location.search}`;
+      window.location.href = `/login?next=${encodeURIComponent(nextPath || '/dashboard/monitoring')}`;
+    }
+  }
+
+  private async ensureToken(): Promise<string | null> {
+    if (this.token || typeof window === 'undefined') {
+      return this.token;
+    }
+
+    const storedToken = window.localStorage.getItem('auth_token');
+    if (storedToken) {
+      this.token = storedToken;
+      return storedToken;
+    }
+
+    if (!this.tokenRecoveryPromise) {
+      this.tokenRecoveryPromise = fetch('/api/auth/backend-session', {
+        credentials: 'include',
+      })
+        .then(async response => {
+          if (!response.ok) {
+            return null;
+          }
+
+          const data = (await response.json().catch(() => ({}))) as {
+            authenticated?: boolean;
+            token?: string;
+          };
+
+          if (data.authenticated && data.token) {
+            this.setToken(data.token);
+            return data.token;
+          }
+
+          return null;
+        })
+        .finally(() => {
+          this.tokenRecoveryPromise = null;
+        });
+    }
+
+    return this.tokenRecoveryPromise;
+  }
+
   private async request<T>(
     endpoint: string,
     options?: RequestInit
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    };
+    const headers = new Headers(options?.headers);
+
+    await this.ensureToken();
+
+    if (options?.body !== undefined && options?.body !== null) {
+      headers.set('Content-Type', 'application/json');
+    } else {
+      headers.delete('Content-Type');
+    }
 
     if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
+      headers.set('Authorization', `Bearer ${this.token}`);
     }
 
     const response = await fetch(url, {
       ...options,
       headers,
+      credentials: 'include'
     });
 
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
+      if (response.status === 401) {
+        await this.handleUnauthorized();
+      }
       const error = data as BackendError;
       throw new Error(error.error || 'Request failed');
     }
 
     return data as T;
+  }
+
+  private async requestBlob(endpoint: string, options?: RequestInit): Promise<Blob> {
+    const url = `${this.baseUrl}${endpoint}`;
+    const headers = new Headers(options?.headers);
+
+    await this.ensureToken();
+
+    if (this.token) {
+      headers.set('Authorization', `Bearer ${this.token}`);
+    }
+
+    const response = await fetch(url, {
+      ...options,
+      headers,
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      let errorMessage = 'Request failed';
+
+      try {
+        const data = await response.json();
+        errorMessage = data?.error || errorMessage;
+      } catch {
+        // Ignore JSON parsing errors for blob/file responses.
+      }
+
+      if (response.status === 401) {
+        await this.handleUnauthorized();
+      }
+
+      throw new Error(errorMessage);
+    }
+
+    return response.blob();
   }
 
   // ==========================================================================
@@ -129,14 +448,43 @@ class BackendAPIClient {
     if (filters?.examId) params.append('examId', filters.examId.toString());
 
     const query = params.toString() ? `?${params}` : '';
-    return this.request<{ success: true; data: { exams: unknown[]; total: number } }>(
+    return this.request<{ success: true; data: { exams: TeacherExam[]; total: number } }>(
       `/api/teacher/exams${query}`
     );
   }
 
   async getExam(examId: number) {
-    return this.request<{ success: true; data: { exams: unknown[] } }>(
+    return this.request<{ success: true; data: { exams: TeacherExam[] } }>(
       `/api/teacher/exams/${examId}`
+    );
+  }
+
+  async createExam(payload: TeacherExamPayload) {
+    return this.request<{ success: true; data: { exams: TeacherExam[]; total: number } }>(
+      '/api/teacher/exams',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  async updateExam(examId: number, payload: TeacherExamPayload) {
+    return this.request<{ success: true; data: { exams: TeacherExam[]; total: number } }>(
+      `/api/teacher/exams/${examId}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  async deleteExam(examId: number) {
+    return this.request<{ success: true; data: { examId: number; deleted: boolean } }>(
+      `/api/teacher/exams/${examId}`,
+      {
+        method: 'DELETE',
+      }
     );
   }
 
@@ -148,6 +496,8 @@ class BackendAPIClient {
     examId?: number;
     status?: string;
     userId?: number;
+    search?: string;
+    includeHidden?: boolean;
     startDate?: string;
     endDate?: string;
     limit?: number;
@@ -161,7 +511,7 @@ class BackendAPIClient {
     });
 
     const queryString = params.toString();
-    return this.request<{ success: true; data: { attempts: unknown[]; total: number } }>(
+    return this.request<{ success: true; data: { attempts: TeacherAttempt[]; total: number } }>(
       `/api/teacher/attempts${queryString ? `?${queryString}` : ''}`
     );
   }
@@ -194,7 +544,7 @@ class BackendAPIClient {
     });
 
     const queryString = params.toString();
-    return this.request<{ success: true; data: { students: unknown[]; total: number } }>(
+    return this.request<{ success: true; data: { students: TeacherStudent[]; total: number } }>(
       `/api/teacher/students${queryString ? `?${queryString}` : ''}`
     );
   }
@@ -218,9 +568,34 @@ class BackendAPIClient {
     });
 
     const queryString = params.toString();
-    return this.request<{ success: true; data: { reports: unknown[]; total: number } }>(
+    return this.request<{ success: true; data: { reports: TeacherReport[]; total: number } }>(
       `/api/teacher/reports${queryString ? `?${queryString}` : ''}`
     );
+  }
+
+  async getAnswerSheetUploads(query: {
+    examId?: number;
+    search?: string;
+    status?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    const params = new URLSearchParams();
+    Object.entries(query).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        params.append(key, value.toString());
+      }
+    });
+
+    const queryString = params.toString();
+    return this.request<{
+      success: true;
+      data: { uploads: TeacherAnswerSheetUpload[]; total: number };
+    }>(`/api/teacher/answer-sheet-uploads${queryString ? `?${queryString}` : ''}`);
+  }
+
+  async downloadAnswerSheetUploadFile(uploadId: number) {
+    return this.requestBlob(`/api/teacher/answer-sheet-uploads/${uploadId}/file`);
   }
 
   // ==========================================================================
@@ -237,8 +612,91 @@ class BackendAPIClient {
     });
 
     const queryString = params.toString();
-    return this.request<{ success: true; data: unknown }>(
+    return this.request<{ success: true; data: TeacherStats }>(
       `/api/teacher/stats${queryString ? `?${queryString}` : ''}`
+    );
+  }
+
+  async getActiveRooms() {
+    return this.request<{ success: true; data: ProctoringRoomSummary[] }>(
+      '/api/room/active'
+    );
+  }
+
+  async createRoom(examId: number, options?: { capacity?: number }) {
+    return this.request<{ success: true; data: CreatedRoomDetails }>('/api/room/create', {
+      method: 'POST',
+      body: JSON.stringify({ examId, capacity: options?.capacity }),
+    });
+  }
+
+  async updateRoom(roomId: number, payload: { capacity: number }) {
+    return this.request<{ success: true; data: { id: number; capacity: number } }>(
+      `/api/room/${roomId}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  async activateRoom(roomId: number) {
+    return this.request<{ success: true; data: { roomId: number; status: string } }>(
+      `/api/room/${roomId}/activate`,
+      {
+        method: 'POST',
+      }
+    );
+  }
+
+  async closeRoom(roomId: number) {
+    return this.request<{ success: true; data: { roomId: number; status: string } }>(
+      `/api/room/${roomId}/close`,
+      {
+        method: 'POST',
+      }
+    );
+  }
+
+  async deleteRoom(roomId: number) {
+    return this.request<{ success: true; data: { roomId: number; deleted: boolean } }>(
+      `/api/room/${roomId}`,
+      {
+        method: 'DELETE',
+      }
+    );
+  }
+
+  async hideAttempt(attemptId: number) {
+    return this.request<{ success: true; data: { attemptId: number; hiddenAt: string; isHidden: boolean } }>(
+      `/api/teacher/attempts/${attemptId}/hide`,
+      {
+        method: 'POST',
+      }
+    );
+  }
+
+  async unhideAttempt(attemptId: number) {
+    return this.request<{ success: true; data: { attemptId: number; isHidden: boolean } }>(
+      `/api/teacher/attempts/${attemptId}/unhide`,
+      {
+        method: 'POST',
+      }
+    );
+  }
+
+  async deleteAttempt(attemptId: number) {
+    return this.request<{ success: true; data: { attemptId: number; deleted: boolean } }>(
+      `/api/teacher/attempts/${attemptId}`,
+      {
+        method: 'DELETE',
+      }
+    );
+  }
+
+  async getRoomStudents(roomId: number) {
+    return this.request<{ success: true; data: RoomMonitoringStudent[] }>(
+      `/api/room/${roomId}/students`
     );
   }
 

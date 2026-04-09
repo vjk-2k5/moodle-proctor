@@ -7,6 +7,30 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { webrtcService } from './webrtc.service';
 import logger from '../../config/logger';
 import { authMiddleware } from '../../middleware/auth.middleware';
+import type { DtlsParameters, RtpParameters } from 'mediasoup/node/lib/types';
+
+function getAuthenticatedUser(request: FastifyRequest): {
+  id: number;
+  firstName?: string;
+  lastName?: string;
+  username?: string;
+} {
+  return (request as any).user as {
+    id: number;
+    firstName?: string;
+    lastName?: string;
+    username?: string;
+  };
+}
+
+function getDisplayName(user: {
+  firstName?: string;
+  lastName?: string;
+  username?: string;
+}): string {
+  const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim();
+  return fullName || user.username || 'Unknown User';
+}
 
 // ============================================================================
 // Route Handlers
@@ -22,8 +46,6 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
     {
       onRequest: [authMiddleware],
       schema: {
-        summary: 'Get room information',
-        tags: ['WebRTC'],
         params: {
           type: 'object',
           properties: {
@@ -63,8 +85,6 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
     {
       onRequest: [authMiddleware],
       schema: {
-        summary: 'Create WebRTC room',
-        tags: ['WebRTC'],
         body: {
           type: 'object',
           properties: {
@@ -79,7 +99,7 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
       try {
         const { roomId, examId } = request.body;
 
-        const room = await webrtcService.createRoom(roomId, examId);
+        await webrtcService.createRoom(roomId, examId);
         const roomInfo = webrtcService.getRoomInfo(roomId);
 
         return reply.status(201).send(roomInfo);
@@ -96,13 +116,11 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
    * POST /api/webrtc/rooms/:roomId/peers
    * Add peer to room and create transport
    */
-  app.post<{ Params: { roomId: string }; Body: { peerId: string; userId: number; studentName: string } }>(
+  app.post<{ Params: { roomId: string }; Body: { peerId: string; studentName?: string } }>(
     '/api/webrtc/rooms/:roomId/peers',
     {
       onRequest: [authMiddleware],
       schema: {
-        summary: 'Join peer to room',
-        tags: ['WebRTC'],
         params: {
           type: 'object',
           properties: {
@@ -114,33 +132,36 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
           type: 'object',
           properties: {
             peerId: { type: 'string' },
-            userId: { type: 'number' },
             studentName: { type: 'string' },
           },
-          required: ['peerId', 'userId', 'studentName'],
+          required: ['peerId'],
         },
       },
     },
     async (
-      request: FastifyRequest<{ Params: { roomId: string }; Body: { peerId: string; userId: number; studentName: string } }>,
+      request: FastifyRequest<{ Params: { roomId: string }; Body: { peerId: string; studentName?: string } }>,
       reply: FastifyReply
     ) => {
       try {
         const { roomId } = request.params;
-        const { peerId, userId, studentName } = request.body;
+        const { peerId, studentName } = request.body;
+        const user = getAuthenticatedUser(request);
+        const resolvedStudentName = studentName?.trim() || getDisplayName(user);
 
-        // Add peer to room
-        await webrtcService.addPeer(roomId, peerId, userId, studentName);
+        await webrtcService.addPeer(roomId, peerId, user.id, resolvedStudentName);
 
-        // Create transport
         const transportParams = await webrtcService.createTransport(
           roomId,
           peerId
         );
+        const routerRtpCapabilities = webrtcService.getRouterRtpCapabilities(roomId);
 
         return reply.status(201).send({
           peerId,
+          userId: user.id,
+          studentName: resolvedStudentName,
           transport: transportParams,
+          routerRtpCapabilities,
         });
       } catch (error) {
         logger.error('Error adding peer:', error);
@@ -157,15 +178,11 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
    */
   app.post<{
     Params: { roomId: string; peerId: string };
-    Body: { dtlsParameters: any };
+    Body: { dtlsParameters: DtlsParameters };
   }>(
     '/api/webrtc/rooms/:roomId/peers/:peerId/connect-transport',
     {
       onRequest: [authMiddleware],
-      schema: {
-        summary: 'Connect peer transport',
-        tags: ['WebRTC'],
-      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
@@ -173,7 +190,15 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
           roomId: string;
           peerId: string;
         };
-        const { dtlsParameters } = request.body as { dtlsParameters: any };
+        const { dtlsParameters } = request.body as { dtlsParameters: DtlsParameters };
+        const peer = webrtcService.getPeer(roomId, peerId);
+        const user = getAuthenticatedUser(request);
+
+        if (!peer || peer.userId !== user.id) {
+          return reply.status(403).send({
+            error: 'Peer does not belong to authenticated user',
+          });
+        }
 
         await webrtcService.connectTransport(
           roomId,
@@ -197,15 +222,11 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
    */
   app.post<{
     Params: { roomId: string; peerId: string };
-    Body: { kind: 'audio' | 'video'; rtpParameters: any };
+    Body: { kind: 'audio' | 'video'; rtpParameters: RtpParameters };
   }>(
     '/api/webrtc/rooms/:roomId/peers/:peerId/produce',
     {
       onRequest: [authMiddleware],
-      schema: {
-        summary: 'Create producer',
-        tags: ['WebRTC'],
-      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
@@ -215,8 +236,16 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
         };
         const { kind, rtpParameters } = request.body as {
           kind: 'audio' | 'video';
-          rtpParameters: any;
+          rtpParameters: RtpParameters;
         };
+        const peer = webrtcService.getPeer(roomId, peerId);
+        const user = getAuthenticatedUser(request);
+
+        if (!peer || peer.userId !== user.id) {
+          return reply.status(403).send({
+            error: 'Peer does not belong to authenticated user',
+          });
+        }
 
         const producer = await webrtcService.createProducer(
           roomId,
@@ -245,10 +274,6 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
     '/api/webrtc/rooms/:roomId/peers/:peerId/consumers',
     {
       onRequest: [authMiddleware],
-      schema: {
-        summary: 'Get available consumers',
-        tags: ['WebRTC'],
-      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
@@ -275,15 +300,11 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
    */
   app.post<{
     Params: { roomId: string; peerId: string };
-    Body: { producerId: string; rtpCapabilities: any };
+    Body: { producerId: string; rtpCapabilities: RtpParameters };
   }>(
     '/api/webrtc/rooms/:roomId/peers/:peerId/consume',
     {
       onRequest: [authMiddleware],
-      schema: {
-        summary: 'Create consumer',
-        tags: ['WebRTC'],
-      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
@@ -293,8 +314,16 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
         };
         const { producerId, rtpCapabilities } = request.body as {
           producerId: string;
-          rtpCapabilities: any;
+          rtpCapabilities: RtpParameters;
         };
+        const peer = webrtcService.getPeer(roomId, peerId);
+        const user = getAuthenticatedUser(request);
+
+        if (!peer || peer.userId !== user.id) {
+          return reply.status(403).send({
+            error: 'Peer does not belong to authenticated user',
+          });
+        }
 
         const consumer = await webrtcService.createConsumer(
           roomId,
@@ -327,10 +356,6 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
     '/api/webrtc/rooms/:roomId/peers/:peerId/consumers/:producerId/resume',
     {
       onRequest: [authMiddleware],
-      schema: {
-        summary: 'Resume consumer',
-        tags: ['WebRTC'],
-      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
@@ -339,6 +364,14 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
           peerId: string;
           producerId: string;
         };
+        const peer = webrtcService.getPeer(roomId, peerId);
+        const user = getAuthenticatedUser(request);
+
+        if (!peer || peer.userId !== user.id) {
+          return reply.status(403).send({
+            error: 'Peer does not belong to authenticated user',
+          });
+        }
 
         await webrtcService.resumeConsumer(roomId, peerId, producerId);
 
@@ -360,10 +393,6 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
     '/api/webrtc/rooms/:roomId/peers/:peerId',
     {
       onRequest: [authMiddleware],
-      schema: {
-        summary: 'Remove peer from room',
-        tags: ['WebRTC'],
-      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
@@ -371,6 +400,14 @@ export async function registerWebRTCRoutes(app: FastifyInstance) {
           roomId: string;
           peerId: string;
         };
+        const peer = webrtcService.getPeer(roomId, peerId);
+        const user = getAuthenticatedUser(request);
+
+        if (!peer || peer.userId !== user.id) {
+          return reply.status(403).send({
+            error: 'Peer does not belong to authenticated user',
+          });
+        }
 
         await webrtcService.removePeer(roomId, peerId);
 

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { MOODLE_TOKEN_COOKIE } from "@/lib/auth";
+import { BACKEND_TOKEN_COOKIE, MOODLE_TOKEN_COOKIE } from "@/lib/auth";
 
 export function middleware(req: NextRequest) {
-  const token = req.cookies.get(MOODLE_TOKEN_COOKIE)?.value;
+  const token =
+    req.cookies.get(BACKEND_TOKEN_COOKIE)?.value ||
+    req.cookies.get(MOODLE_TOKEN_COOKIE)?.value;
   if (token) return NextResponse.next();
 
   const loginUrl = req.nextUrl.clone();

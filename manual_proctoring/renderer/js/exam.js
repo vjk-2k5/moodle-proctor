@@ -23,13 +23,186 @@ let aiProctoringStatus = {
 let liveAiWarnings = []
 let liveAiAdvisories = []
 let pinnedExamStatus = null
+let webRTCBroadcastState = {
+  status: 'idle',
+  detail: 'WebRTC broadcast is idle.',
+  isConnected: false,
+  isProducing: false,
+  error: null
+}
+let teacherBroadcastStartTimeoutId = null
+
+let roomEnrollment = null
+let currentExamSettings = {
+  enableAiProctoring: true,
+  enableManualProctoring: true,
+  autoSubmitOnWarningLimit: true,
+  captureSnapshots: true,
+  allowStudentRejoin: true,
+  maxWarnings: 15
+}
+
+async function getSafeStorage () {
+  const safeStorage = window.electronAPI?.safeStorage
+
+  if (!safeStorage) {
+    return null
+  }
+
+  try {
+    const isEncryptionAvailable = await safeStorage.isEncryptionAvailable()
+    return isEncryptionAvailable ? safeStorage : null
+  } catch (error) {
+    console.error('Failed to access safeStorage availability:', error)
+    return null
+  }
+}
+
+/**
+ * Decrypt and retrieve enrollment data from localStorage
+ * Handles both encrypted (safeStorage) and unencrypted (legacy) data
+ */
+async function getRoomEnrollment() {
+  const encryptedKey = 'roomEnrollmentEncrypted';
+  const legacyKey = 'roomEnrollment';
+
+  try {
+    // Try to read and decrypt encrypted data first
+    const encryptedData = localStorage.getItem(encryptedKey);
+    if (encryptedData) {
+      const safeStorage = await getSafeStorage()
+
+      if (safeStorage) {
+        const decryptedString = await safeStorage.decryptString(encryptedData);
+        return JSON.parse(decryptedString);
+      } else {
+        // safeStorage not available, can't decrypt
+        console.warn('Encrypted data found but safeStorage unavailable');
+      }
+    }
+
+    // Fallback: try reading unencrypted legacy data
+    const legacyData = localStorage.getItem(legacyKey);
+    if (legacyData) {
+      console.warn('Reading unencrypted enrollment data (should migrate to encrypted)');
+      return JSON.parse(legacyData);
+    }
+  } catch (error) {
+    console.error('Error decrypting/parsing room enrollment:', error);
+  }
+
+  return null;
+}
+
+function clearRoomEnrollment() {
+  // Clear both encrypted and unencrypted versions
+  localStorage.removeItem('roomEnrollmentEncrypted');
+  localStorage.removeItem('roomEnrollment');
+  roomEnrollment = null;
+}
+
+async function isRoomBasedSession() {
+  const enrollment = await getRoomEnrollment();
+  return !!enrollment;
+}
+
+// Modified fetchWithSession to support room-based enrollment
+async function fetchWithSessionOrRoom(url, options = {}) {
+  const roomData = await getRoomEnrollment();
+
+  if (roomData) {
+    // Room-based session: include room enrollment info in headers
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        'X-Room-Enrollment-Id': roomData.enrollmentId.toString(),
+        'X-Room-Id': roomData.roomId.toString(), // Include for signature validation
+        'X-Room-Code': roomData.roomCode,
+        'X-Student-Email': roomData.studentEmail,
+        'X-Room-Enrollment-Signature': roomData.enrollmentSignature || '' // Include signature for validation
+      }
+    })
+    return response
+  } else {
+    // Traditional authenticated session
+    return await fetchWithSession(url, options)
+  }
+}
+
+function getRoomEnrollmentHeaders(roomData) {
+  if (!roomData) {
+    return null
+  }
+
+  return {
+    'X-Room-Enrollment-Id': roomData.enrollmentId.toString(),
+    'X-Room-Id': roomData.roomId.toString(),
+    'X-Room-Code': roomData.roomCode,
+    'X-Student-Email': roomData.studentEmail,
+    'X-Room-Enrollment-Signature': roomData.enrollmentSignature || ''
+  }
+}
+
+async function uploadLiveSnapshot(imageBase64) {
+  const roomData = await getRoomEnrollment();
+
+  if (!roomData?.roomCode || !imageBase64) {
+    return;
+  }
+
+  try {
+    await fetchWithSessionOrRoom(
+      `${API_BASE_URL}/api/live-monitoring/rooms/${encodeURIComponent(roomData.roomCode)}/frame`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          imageBase64,
+          mimeType: 'image/jpeg'
+        })
+      }
+    );
+  } catch (error) {
+    console.warn('[Live Monitoring] Failed to upload snapshot:', error);
+  }
+}
+
+async function startTeacherWebRTCBroadcast() {
+  const roomData = await getRoomEnrollment()
+
+  if (!roomData?.roomCode || !window.electronAPI?.startWebRTCBroadcast) {
+    return
+  }
+
+  const studentName = roomData.studentName || 'Student'
+  const peerId = `room-student-${roomData.roomId}-${roomData.enrollmentId}`
+
+  try {
+    await window.electronAPI.startWebRTCBroadcast({
+      roomId: roomData.roomCode,
+      peerId,
+      studentName,
+      backendUrl: API_BASE_URL,
+      requestHeaders: getRoomEnrollmentHeaders(roomData),
+      videoElementId: 'video'
+    })
+  } catch (error) {
+    console.warn('[Live Monitoring] WebRTC broadcast failed to start:', error)
+  }
+}
 
 const EXAM_CONFIG = {
   maxWarnings: 15,
   networkAppWarningCooldownMs: 5000,
   reconnectCheckIntervalMs: 5000,
   proctorFrameIntervalMs: 125,
+  liveSnapshotUploadIntervalMs: 350,
+  aiSignalRetryCooldownMs: 1500,
   aiWarningDefaultDwellMs: 0,
+  aiAdvisoryDefaultDwellMs: 1500,
   aiWarningDwellMs: {
     'No face detected': 500,
     'Multiple faces detected': 0,
@@ -38,8 +211,45 @@ const EXAM_CONFIG = {
     'Forbidden object detected': 0,
     'Identity could not be verified': 1000,
     'Camera may be blocked': 500
+  },
+  aiAdvisoryDwellMs: {
+    'Possible speech activity observed': 1500,
+    'Abnormal blink pattern observed': 2000,
+    'Lighting too dark for reliable monitoring': 1500,
+    'Lighting changed sharply': 1500,
+    'Background movement detected': 1500
   }
 }
+
+function normalizeWarningLimit (value, fallback = 15) {
+  const normalizedValue = Number(value)
+
+  if (Number.isFinite(normalizedValue) && normalizedValue > 0) {
+    return normalizedValue
+  }
+
+  return fallback
+}
+
+function getCurrentWarningLimit () {
+  return normalizeWarningLimit(
+    currentAttempt?.maxWarnings ||
+      currentExamSettings.maxWarnings ||
+      EXAM_CONFIG.maxWarnings ||
+      15
+  )
+}
+
+function updateWarningLimitDisplay (limit = getCurrentWarningLimit()) {
+  const warningLimitTotalElement = document.getElementById('warningLimitTotal')
+
+  if (!warningLimitTotalElement) {
+    return
+  }
+
+  warningLimitTotalElement.innerText = `/ ${normalizeWarningLimit(limit)} warnings used`
+}
+
 const PROCTOR_FEED_UI = {
   boxClassByState: {
     idle: 'video-box-idle',
@@ -74,7 +284,6 @@ const PROCTOR_FEED_UI = {
     error: 'Error'
   }
 }
-const MAX_WARNINGS = EXAM_CONFIG.maxWarnings
 const recentBlockedAppWarnings = new Map()
 const PROCTOR_DOCK_POSITION_KEY = 'manual_proctoring.proctorDock.position'
 const PROCTOR_DOCK_COLLAPSED_KEY = 'manual_proctoring.proctorDock.collapsed'
@@ -219,6 +428,8 @@ function updateViolationCount (count) {
   const violationCountElement = document.getElementById('violationCount')
   const warningProgressElement = document.getElementById('warningProgress')
 
+  updateWarningLimitDisplay()
+
   if (violationCountElement) {
     violationCountElement.innerText = String(normalizedCount)
   }
@@ -297,6 +508,11 @@ function resetLiveMonitoringState () {
   lastProctorPayloadAt = 0
   activeViolations.clear()
   pendingAiViolations.clear()
+  activeAiAdvisories.clear()
+  pendingAiAdvisories.clear()
+  reportingAiViolations.clear()
+  reportingAiAdvisories.clear()
+  aiSignalRetryAt.clear()
   setLiveAIWarnings([], [])
 }
 
@@ -767,89 +983,7 @@ function renderWarningHistory (violations = []) {
   }
 
   const recentViolations = Array.isArray(violations)
-    ? violations.slice(-5).reverse()
-    : []
-
-  if (recentViolations.length === 0) {
-    historyList.innerHTML =
-      '<li style="color: #475467; font-size: 14px;">No warnings recorded yet.</li>'
-    return
-  }
-
-  historyList.innerHTML = recentViolations
-    .map(violation => {
-      const warningCopy = getUserFacingWarningCopy(violation)
-      const detail = escapeHtml(warningCopy.detail)
-      const type = escapeHtml(warningCopy.title)
-      const timestamp = escapeHtml(
-        formatViolationTimestamp(violation.createdAt)
-      )
-      const severityLabel = escapeHtml(
-        violation.severity === 'info' ? 'Info' : 'Warning'
-      )
-
-      return `
-        <li style="padding: 12px; border: 1px solid #eaecf0; border-radius: 10px; background: #f8fafc;">
-          <div style="font-size: 13px; color: #475467; margin-bottom: 6px;">${timestamp} · ${severityLabel}</div>
-          <div style="font-weight: 700; color: #101828; margin-bottom: 4px;">${type}</div>
-          <div style="font-size: 14px; color: #344054; line-height: 1.4;">${detail}</div>
-        </li>
-      `
-    })
-    .join('')
-}
-
-function renderQuestionSummary (questions = []) {
-  const questionList = document.getElementById('questionSummaryList')
-
-  if (!questionList) {
-    return
-  }
-
-  if (!Array.isArray(questions) || questions.length === 0) {
-    questionList.innerHTML =
-      '<li style="color: #475467; font-size: 14px;">No question summary is available.</li>'
-    return
-  }
-
-  questionList.innerHTML = questions
-    .map(question => {
-      const questionText = escapeHtml(question.question || 'Untitled question')
-      const options = Array.isArray(question.options) ? question.options : []
-
-      const optionMarkup =
-        options.length === 0
-          ? '<li style="color: #475467; font-size: 13px;">No options listed.</li>'
-          : options
-              .map(
-                option =>
-                  `<li style="font-size: 13px; color: #344054;">${escapeHtml(
-                    option
-                  )}</li>`
-              )
-              .join('')
-
-      return `
-        <li style="padding: 12px; border: 1px solid #eaecf0; border-radius: 10px; background: #f8fafc;">
-          <div style="font-weight: 700; color: #101828; margin-bottom: 8px;">${questionText}</div>
-          <ul style="margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px;">
-            ${optionMarkup}
-          </ul>
-        </li>
-      `
-    })
-    .join('')
-}
-
-function renderWarningHistory (violations = []) {
-  const historyList = document.getElementById('warningHistoryList')
-
-  if (!historyList) {
-    return
-  }
-
-  const recentViolations = Array.isArray(violations)
-    ? violations.slice(-5).reverse()
+    ? violations.slice(0, 5)
     : []
 
   if (recentViolations.length === 0) {
@@ -896,12 +1030,26 @@ function renderQuestionSummary (questions = []) {
 
   questionList.innerHTML = questions
     .map(question => {
-      const questionText = escapeHtml(question.question || 'Untitled question')
+      const rawQuestionText = String(question.question || 'Untitled question')
+      const normalizedQuestionText = rawQuestionText
+        .replace(/\s*\(question paper PDF\)\s*$/i, '')
+        .trim()
+      const isDocumentOnlyQuestion =
+        Array.isArray(question.options) &&
+        question.options.length === 0 &&
+        /\(question paper PDF\)\s*$/i.test(rawQuestionText)
+      const questionText = escapeHtml(
+        isDocumentOnlyQuestion
+          ? 'Question paper PDF'
+          : normalizedQuestionText || 'Untitled question'
+      )
       const options = Array.isArray(question.options) ? question.options : []
 
       const optionMarkup =
-        options.length === 0
-          ? '<li class="summary-card-detail">No options listed.</li>'
+        isDocumentOnlyQuestion
+          ? '<li class="summary-card-detail">Read the complete question paper on the left and answer from that document.</li>'
+          : options.length === 0
+          ? '<li class="summary-card-detail">This question has no listed options.</li>'
           : options
               .map(
                 option =>
@@ -923,7 +1071,7 @@ function renderQuestionSummary (questions = []) {
 
 async function loadQuestionSummary () {
   try {
-    const response = await fetchWithSession(`${API_BASE_URL}/api/questions`)
+    const response = await fetchWithSessionOrRoom(`${API_BASE_URL}/api/questions`)
 
     if (!response) {
       markBackendDisconnected(
@@ -1014,7 +1162,15 @@ function playWarningBeep () {
 function renderExamHeader (student) {
   document.getElementById('examStudentName').innerText = student.name
   document.getElementById('examStudentEmail').innerText = student.email
-  document.getElementById('examTitle').innerText = student.exam
+
+  // Handle room-based sessions
+  if (student.roomCode) {
+    // For room-based sessions, show examName and roomCode
+    document.getElementById('examTitle').innerText = `${student.examName} (Room: ${student.roomCode})`
+  } else {
+    // Traditional sessions
+    document.getElementById('examTitle').innerText = student.exam
+  }
 }
 
 function updateSubmissionButton (isDisabled, label = 'Submit Exam') {
@@ -1070,7 +1226,7 @@ function setBackendDisconnectedState (isDisconnected, message) {
 }
 
 async function checkBackendConnection () {
-  const response = await fetchWithSession(`${API_BASE_URL}/api/session`)
+  const response = await fetchWithSessionOrRoom(`${API_BASE_URL}/api/session`)
 
   if (!response) {
     markBackendDisconnected(
@@ -1134,6 +1290,17 @@ function releaseExamResources () {
     frameCaptureController = null
   }
 
+  if (teacherBroadcastStartTimeoutId) {
+    clearTimeout(teacherBroadcastStartTimeoutId)
+    teacherBroadcastStartTimeoutId = null
+  }
+
+  if (window.electronAPI?.stopWebRTCBroadcast) {
+    window.electronAPI.stopWebRTCBroadcast().catch(error => {
+      console.warn('Failed to stop WebRTC broadcast:', error)
+    })
+  }
+
   if (video?.srcObject) {
     video.srcObject.getTracks().forEach(track => track.stop())
     video.srcObject = null
@@ -1188,9 +1355,93 @@ function formatCompletionTimestamp (timestamp) {
   })
 }
 
-function renderCompletionScreen (reasonLabel, attempt = {}) {
+function normalizeCompletionAttempt (reason, attempt = currentAttempt) {
+  const nextAttempt =
+    attempt && typeof attempt === 'object'
+      ? {
+          ...attempt
+        }
+      : {}
+
+  if (!nextAttempt.submissionReason) {
+    nextAttempt.submissionReason = reason
+  }
+
+  if (!nextAttempt.submittedAt) {
+    nextAttempt.submittedAt = Date.now()
+  }
+
+  return nextAttempt
+}
+
+function storeLocalUploadSession (session) {
+  if (!session || typeof session !== 'object') {
+    return false
+  }
+
+  try {
+    localStorage.setItem('postExamUploadSession', JSON.stringify(session))
+    return true
+  } catch (error) {
+    console.warn('Failed to store local upload session fallback:', error)
+    return false
+  }
+}
+
+function formatDiagnosticValue (value) {
+  if (value === null || value === undefined || value === '') {
+    return 'n/a'
+  }
+
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, null, 2)
+    } catch (error) {
+      return String(value)
+    }
+  }
+
+  return String(value)
+}
+
+function buildUploadDebugMarkup (uploadDiagnostics = null) {
+  if (!uploadDiagnostics || typeof uploadDiagnostics !== 'object') {
+    return ''
+  }
+
+  const entries = Object.entries(uploadDiagnostics)
+    .filter(([, value]) => value !== undefined)
+    .map(
+      ([key, value]) =>
+        `<div><strong>${escapeHtml(key)}:</strong> <pre style="margin: 4px 0 0; white-space: pre-wrap; word-break: break-word; font: 12px/1.4 Consolas, monospace;">${escapeHtml(formatDiagnosticValue(value))}</pre></div>`
+    )
+    .join('')
+
+  if (!entries) {
+    return ''
+  }
+
+  return `
+    <details style="margin-top: 16px; text-align: left;">
+      <summary style="cursor: pointer; font-weight: 600; color: #475467;">Upload handoff debug details</summary>
+      <div style="margin-top: 12px; display: grid; gap: 10px;">
+        ${entries}
+      </div>
+    </details>
+  `
+}
+
+function renderCompletionScreen (
+  reasonLabel,
+  attempt = {},
+  uploadError = '',
+  uploadDiagnostics = null
+) {
   const warningCount = Number(attempt.violationCount || 0)
-  const maxWarnings = Number(attempt.maxWarnings || MAX_WARNINGS)
+  const maxWarnings = normalizeWarningLimit(
+    attempt.maxWarnings,
+    getCurrentWarningLimit()
+  )
   const submissionReason = formatCompletionLabel(
     attempt.submissionReason,
     formatCompletionLabel(reasonLabel, 'Completed')
@@ -1200,11 +1451,20 @@ function renderCompletionScreen (reasonLabel, attempt = {}) {
     'left_exam',
     'warning_limit_reached'
   ].includes(attempt.submissionReason)
+  const uploadErrorMarkup = uploadError
+    ? `
+        <div style="margin-top: 18px; padding: 14px 16px; border-radius: 12px; background: #fef3f2; color: #b42318; text-align: left;">
+          <strong>Answer-sheet upload handoff failed.</strong>
+          <div style="margin-top: 6px;">${escapeHtml(uploadError)}</div>
+          ${buildUploadDebugMarkup(uploadDiagnostics)}
+        </div>
+      `
+    : ''
 
   document.body.innerHTML = `
     <div class="completion-screen">
       <div class="completion-card">
-        <h1>Exam Completed</h1>
+        <h1>Exam Submitted</h1>
         <p>${escapeHtml(reasonLabel)}</p>
         <div style="margin-top: 20px; text-align: left; display: grid; gap: 12px;">
           <div>
@@ -1223,46 +1483,209 @@ function renderCompletionScreen (reasonLabel, attempt = {}) {
         <p style="margin-top: 20px; color: #475467;">
           ${
             shouldContactInvigilator
-              ? 'Please contact the invigilator if you need clarification about this submission.'
-              : 'If you have any questions, please contact the invigilator.'
+              ? 'If you need help with this submission, please contact the invigilator or teacher.'
+              : 'If you need help, please contact the invigilator or teacher.'
           }
         </p>
+        ${uploadErrorMarkup}
       </div>
     </div>
   `
 }
 
-function finishExamUI (reason) {
+function finishExamUI (reason, uploadError = '', uploadDiagnostics = null) {
   examSubmitted = true
   releaseExamResources()
 
+  const completionAttempt = normalizeCompletionAttempt(reason)
+  currentAttempt = completionAttempt
+
   const messageByReason = {
     manual_submit: 'Your exam has been submitted successfully.',
-    timer_expired: 'Time is up. Your exam has been submitted automatically.',
-    left_exam: 'Leaving the exam submitted your attempt automatically.',
-    warning_limit_reached: `The exam was terminated permanently after reaching ${MAX_WARNINGS} warnings.`
+    timer_expired: 'Time is up. Your exam was submitted automatically.',
+    left_exam: 'You left the exam, so your attempt was submitted automatically.',
+    warning_limit_reached: `The exam was terminated permanently after reaching ${getCurrentWarningLimit()} warnings.`
   }
 
   renderCompletionScreen(
-    messageByReason[reason] || 'Your exam session has ended successfully.',
-    currentAttempt || { submissionReason: reason }
+    messageByReason[reason] || 'Your exam session has ended.',
+    completionAttempt,
+    uploadError,
+    uploadDiagnostics
   )
 }
 
-async function reportViolation (type, detail, severity = 'warning') {
-  if (!examStarted || examSubmitted) {
-    return
+async function openPostExamUploadHandoff (reason = 'manual_submit') {
+  examSubmitted = true
+  currentAttempt = normalizeCompletionAttempt(reason)
+  const uploadResult = await createAnswerSheetUploadSession(reason)
+
+  if (window.electronAPI?.openScanner && uploadResult.session) {
+    releaseExamResources()
+    window.electronAPI.openScanner(uploadResult.session)
+    return true
+  }
+
+  if (uploadResult.session) {
+    const storedLocally = storeLocalUploadSession(uploadResult.session)
+
+    if (storedLocally) {
+      releaseExamResources()
+      window.location = 'upload-session.html'
+      return true
+    }
+  }
+
+  const uploadDiagnostics = {
+    stage: window.electronAPI?.openScanner
+      ? 'electron_open_scanner_failed_after_session_create'
+      : 'electron_api_missing',
+    hasElectronApi: Boolean(window.electronAPI),
+    hasOpenScanner: Boolean(window.electronAPI?.openScanner),
+    sessionCreated: Boolean(uploadResult.session),
+    sessionToken: uploadResult.session?.token || null,
+    mobileEntryUrl: uploadResult.session?.mobileEntryUrl || null,
+    localSessionStored: Boolean(uploadResult.session && storeLocalUploadSession(uploadResult.session)),
+    ...(uploadResult.diagnostics || {})
+  }
+
+  finishExamUI(
+    reason,
+    uploadResult.error ||
+      'We could not prepare the QR handoff for answer-sheet upload.',
+    uploadDiagnostics
+  )
+  return false
+}
+
+async function createAnswerSheetUploadSession (submissionReason = 'manual_submit') {
+  const attemptId = Number(currentAttempt?.id || 0) || undefined
+  const isRoomSession = await isRoomBasedSession()
+  const diagnostics = {
+    stage: 'create_scan_session_request',
+    apiBaseUrl: API_BASE_URL,
+    attemptId: attemptId || null,
+    submissionReason,
+    isRoomSession,
+    hasElectronApi: Boolean(window.electronAPI),
+    hasOpenScanner: Boolean(window.electronAPI?.openScanner)
   }
 
   try {
-    const response = await fetchWithSession(
+    const response = await fetchWithSessionOrRoom(`${API_BASE_URL}/api/scan/sessions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        attemptId,
+        submissionReason,
+        source: 'electron_post_exam'
+      })
+    })
+
+    if (!response) {
+      return {
+        session: null,
+        error: 'The exam session is no longer authenticated.',
+        diagnostics: {
+          ...diagnostics,
+          stage: 'scan_session_no_response'
+        }
+      }
+    }
+
+    const rawBody = await response.text()
+    let data = {}
+
+    if (rawBody) {
+      try {
+        data = JSON.parse(rawBody)
+      } catch (parseError) {
+        throw new Error(
+          rawBody.trim() ||
+            'The server returned an unreadable response while creating the upload session.'
+        )
+      }
+    }
+
+    const nextDiagnostics = {
+      ...diagnostics,
+      responseStatus: response.status,
+      responseOk: response.ok,
+      responseUrl: response.url,
+      responseBodyPreview: rawBody ? rawBody.slice(0, 1200) : '(empty)',
+      responseSuccess: Boolean(data.success),
+      responseError: data.error || data.message || null,
+      responseHasData: Boolean(data.data || data.session),
+      responseKeys: Object.keys(data || {}),
+      backendDebug: data.debug || null
+    }
+
+    if (!response.ok || !data.success) {
+      return {
+        session: null,
+        error:
+          data.error ||
+          data.message ||
+          'We could not prepare the answer sheet upload session.',
+        diagnostics: nextDiagnostics
+      }
+    }
+
+    const session = data.data || data.session || null
+
+    if (session && typeof session === 'object') {
+      session.backendApiBaseUrl = API_BASE_URL
+    }
+
+    return {
+      session,
+      error: session ? null : 'The server reported success but did not return a scan session.',
+      diagnostics: nextDiagnostics
+    }
+  } catch (error) {
+    console.error('Failed to create answer sheet upload session:', error)
+    return {
+      session: null,
+      error:
+        error instanceof Error && error.message
+          ? error.message
+          : 'We could not prepare the answer sheet upload session.',
+      diagnostics: {
+        ...diagnostics,
+        stage: 'scan_session_exception',
+        exceptionName: error instanceof Error ? error.name : typeof error,
+        exceptionMessage:
+          error instanceof Error ? error.message : String(error || 'Unknown error')
+      }
+    }
+  }
+}
+
+
+async function reportViolation (type, detail, severity = 'warning') {
+  if (!examStarted || examSubmitted) {
+    return false
+  }
+
+  try {
+    const attemptId = Number(currentAttempt?.id || 0) || undefined
+    const response = await fetchWithSessionOrRoom(
       `${API_BASE_URL}/api/exam/violations`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ type, detail, severity })
+        body: JSON.stringify({
+          attemptId,
+          type,
+          violationType: type,
+          detail,
+          severity,
+          timestamp: Date.now()
+        })
       }
     )
 
@@ -1270,42 +1693,118 @@ async function reportViolation (type, detail, severity = 'warning') {
       markBackendDisconnected(
         'We could not reach the exam server while recording this event. Trying to reconnect...'
       )
-      return
+      return false
     }
 
     const data = await response.json()
 
-    if (response.ok && data.attempt) {
-      if (backendDisconnected) {
-        clearReconnectCheck()
-        setBackendDisconnectedState(
-          false,
-          'Connection restored. Your exam is back online.'
-        )
-      }
-      currentAttempt = data.attempt
-      updateViolationCount(data.attempt.violationCount)
-      renderWarningHistory(data.attempt.violations)
-      if (severity === 'warning') {
-        playWarningBeep()
+    if (!response.ok) {
+      throw new Error(
+        data.error ||
+          data.message ||
+          `The server rejected the warning request (${response.status}).`
+      )
+    }
+
+    const responseAttempt = data.attempt || data.data?.attempt || null
+    const responseViolation = data.violation || data.data?.violation || null
+    const responseViolationCount = data.data?.violationCount
+    let nextAttempt =
+      responseAttempt && typeof responseAttempt === 'object'
+        ? {
+            ...(currentAttempt || {}),
+            ...responseAttempt
+          }
+        : currentAttempt
+        ? { ...currentAttempt }
+        : null
+
+    if (nextAttempt && responseViolationCount !== undefined) {
+      nextAttempt.violationCount = Number(responseViolationCount || 0)
+    }
+
+    if (nextAttempt && responseViolation) {
+      const normalizedViolation = {
+        type:
+          responseViolation.type ||
+          responseViolation.violationType ||
+          type,
+        detail: responseViolation.detail || detail,
+        severity: responseViolation.severity || severity,
+        createdAt: responseViolation.createdAt
+          ? Number(responseViolation.createdAt)
+          : responseViolation.occurredAt
+          ? new Date(responseViolation.occurredAt).getTime()
+          : Date.now()
       }
 
-      if (data.attempt.status === 'submitted') {
-        setExamStatus(
-          data.message ||
-            `Exam terminated after reaching ${MAX_WARNINGS} warnings.`,
-          'error'
-        )
-        finishExamUI(data.attempt.submissionReason || 'warning_limit_reached')
-      } else {
-        showViolationStatus({ type, detail, severity })
-      }
+      const existingViolations = Array.isArray(nextAttempt.violations)
+        ? nextAttempt.violations
+        : []
+      const isDuplicate = existingViolations.some(
+        violation =>
+          violation.type === normalizedViolation.type &&
+          violation.detail === normalizedViolation.detail &&
+          Number(violation.createdAt || 0) ===
+            Number(normalizedViolation.createdAt || 0)
+      )
+
+      nextAttempt.violations = isDuplicate
+        ? existingViolations
+        : [normalizedViolation, ...existingViolations]
     }
+
+    if (!nextAttempt) {
+      throw new Error('The server did not return the updated exam attempt state.')
+    }
+
+    if (backendDisconnected) {
+      clearReconnectCheck()
+      setBackendDisconnectedState(
+        false,
+        'Connection restored. Your exam is back online.'
+      )
+    }
+    currentAttempt = nextAttempt
+    updateViolationCount(nextAttempt.violationCount)
+    renderWarningHistory(nextAttempt.violations)
+    if (severity === 'warning') {
+      playWarningBeep()
+    }
+
+    if (nextAttempt.status === 'submitted') {
+      setExamStatus(
+        data.message ||
+          `Exam terminated after reaching ${getCurrentWarningLimit()} warnings.`,
+        'error'
+      )
+      await openPostExamUploadHandoff(
+        nextAttempt.submissionReason || 'warning_limit_reached'
+      )
+    } else {
+      showViolationStatus({ type, detail, severity })
+    }
+    return true
   } catch (error) {
     console.error('Failed to report violation:', error)
-    markBackendDisconnected(
-      'We could not reach the exam server while recording this event. Trying to reconnect...'
+    const errorMessage =
+      error instanceof Error && error.message
+        ? error.message
+        : 'The warning could not be recorded.'
+
+    if (error instanceof TypeError) {
+      markBackendDisconnected(
+        'We could not reach the exam server while recording this event. Trying to reconnect...'
+      )
+      return false
+    }
+
+    setExamStatus(
+      `The warning could not be recorded: ${errorMessage}`,
+      'error',
+      { pin: true }
     )
+    return false
   }
 }
 
@@ -1328,7 +1827,7 @@ function startTimer (totalSeconds) {
 }
 
 async function loadQuestionPaper (questionPaperName) {
-  const response = await fetchWithSession(
+  const response = await fetchWithSessionOrRoom(
     `${API_BASE_URL}/files/${questionPaperName}`
   )
 
@@ -1350,7 +1849,7 @@ async function loadQuestionPaper (questionPaperName) {
 }
 
 async function startExamAttempt () {
-  const response = await fetchWithSession(`${API_BASE_URL}/api/exam/start`, {
+  const response = await fetchWithSessionOrRoom(`${API_BASE_URL}/api/exam/start`, {
     method: 'POST'
   })
 
@@ -1368,7 +1867,13 @@ async function startExamAttempt () {
     return false
   }
 
-  currentAttempt = data.attempt
+  currentAttempt =
+    data.attempt && typeof data.attempt === 'object'
+      ? {
+          ...(currentAttempt || {}),
+          ...data.attempt
+        }
+      : currentAttempt
   if (backendDisconnected) {
     clearReconnectCheck()
     setBackendDisconnectedState(
@@ -1376,8 +1881,9 @@ async function startExamAttempt () {
       'Connection restored. You can continue your exam.'
     )
   }
-  updateViolationCount(data.attempt.violationCount)
-  renderWarningHistory(data.attempt.violations)
+  updateWarningLimitDisplay(currentAttempt?.maxWarnings)
+  updateViolationCount(currentAttempt?.violationCount)
+  renderWarningHistory(currentAttempt?.violations)
   examStarted = true
   resetLiveMonitoringState()
   setAIProctoringStatus({
@@ -1393,10 +1899,10 @@ async function startExamAttempt () {
 }
 
 async function loadExam () {
-  setExamStatus('Loading your exam...', 'info')
+    setExamStatus('Loading your exam...', 'info')
 
   try {
-    const response = await fetchWithSession(`${API_BASE_URL}/api/exam`)
+    const response = await fetchWithSessionOrRoom(`${API_BASE_URL}/api/exam`)
 
     if (!response) {
       markBackendDisconnected(
@@ -1413,14 +1919,49 @@ async function loadExam () {
     }
 
     if (data.attempt?.status === 'submitted') {
-      finishExamUI(data.attempt.submissionReason || 'manual_submit')
+      currentAttempt =
+        data.attempt && typeof data.attempt === 'object'
+          ? {
+              ...(currentAttempt || {}),
+              ...data.attempt
+            }
+          : normalizeCompletionAttempt('manual_submit')
+      await openPostExamUploadHandoff(
+        data.attempt.submissionReason || 'manual_submit'
+      )
       return
     }
 
-    currentAttempt = data.attempt
-    renderExamHeader(data.student)
-    updateViolationCount(data.attempt?.violationCount)
-    renderWarningHistory(data.attempt?.violations)
+    currentExamSettings = {
+      ...currentExamSettings,
+      ...(data.settings || {})
+    }
+
+    currentAttempt =
+      data.attempt && typeof data.attempt === 'object'
+        ? {
+            ...(currentAttempt || {}),
+            ...data.attempt
+          }
+        : currentAttempt
+    updateWarningLimitDisplay()
+
+    // Render header with room info or student info
+    if (await isRoomBasedSession()) {
+      const roomData = await getRoomEnrollment();
+      renderExamHeader({
+        name: roomData.studentName,
+        email: roomData.studentEmail,
+        examName: roomData.examName,
+        courseName: roomData.courseName,
+        roomCode: roomData.roomCode
+      })
+    } else {
+      renderExamHeader(data.student)
+    }
+
+    updateViolationCount(currentAttempt?.violationCount)
+    renderWarningHistory(currentAttempt?.violations)
 
     const cameraReady = await startCamera()
 
@@ -1435,6 +1976,10 @@ async function loadExam () {
       return
     }
 
+    if (window.electronAPI?.startFullscreen) {
+      window.electronAPI.startFullscreen()
+    }
+
     startTimer(data.timerSeconds)
     const paperLoaded = await loadQuestionPaper(data.questionPaper)
 
@@ -1443,7 +1988,7 @@ async function loadExam () {
     }
 
     await loadQuestionSummary()
-    setExamStatus('Your exam is ready. Stay focused and good luck.', 'info')
+    setExamStatus('Your exam is ready. You may begin now.', 'info')
   } catch (error) {
     console.error('Error loading exam:', error)
     markBackendDisconnected(
@@ -1465,7 +2010,7 @@ async function submitExam (reason = 'manual_submit') {
   })
 
   try {
-    const response = await fetchWithSession(`${API_BASE_URL}/api/exam/submit`, {
+    const response = await fetchWithSessionOrRoom(`${API_BASE_URL}/api/exam/submit`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -1490,11 +2035,23 @@ async function submitExam (reason = 'manual_submit') {
       return
     }
 
-    currentAttempt = data.attempt
+    currentAttempt =
+      data.attempt && typeof data.attempt === 'object'
+        ? {
+            ...(currentAttempt || {}),
+            ...data.attempt
+          }
+        : normalizeCompletionAttempt(reason)
+
+    if (!currentAttempt.submissionReason) {
+      currentAttempt.submissionReason = reason
+    }
+
     if (backendDisconnected) {
       clearReconnectCheck()
     }
-    finishExamUI(reason)
+
+    await openPostExamUploadHandoff(reason)
   } catch (error) {
     console.error('Submit error:', error)
     markBackendDisconnected(
@@ -1537,7 +2094,10 @@ async function startCamera () {
       return false
     }
 
-    if (window.electronAPI?.ensureAIProctoringService) {
+    if (
+      currentExamSettings.enableAiProctoring &&
+      window.electronAPI?.ensureAIProctoringService
+    ) {
       setAIProctoringStatus({
         state: 'starting',
         detail: 'Starting AI proctoring and preparing the live feed...'
@@ -1553,6 +2113,11 @@ async function startCamera () {
         )
         return false
       }
+    } else if (!currentExamSettings.enableAiProctoring) {
+      setAIProctoringStatus({
+        state: 'idle',
+        detail: 'AI proctoring is turned off for this exam.'
+      })
     }
 
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -1561,6 +2126,7 @@ async function startCamera () {
     })
 
     video.srcObject = stream
+    await video.play().catch(() => {})
     setExamStatus('Your camera is connected. You are ready to begin.', 'info')
     frameCaptureController = startFrameCaptureWithOverlay(video)
     return true
@@ -1602,6 +2168,10 @@ const PROCTORING_VIOLATION_MAP = {
     type: 'gaze_away',
     detail: 'Candidate gaze directed away from screen.'
   },
+  'Possible speech activity observed': {
+    type: 'lip_movement',
+    detail: 'Possible speech activity was detected in the camera feed.'
+  },
   'Talking detected': {
     type: 'lip_movement',
     detail: 'Lip movement suggesting speech detected.'
@@ -1615,9 +2185,21 @@ const PROCTORING_VIOLATION_MAP = {
     type: 'blink_anomaly',
     detail: 'Unusual blink pattern detected.'
   },
+  'Abnormal blink pattern observed': {
+    type: 'blink_anomaly',
+    detail: 'An unusual blink pattern was observed in the live feed.'
+  },
   'Lighting too dark — face not visible': {
     type: 'lighting_dark',
     detail: 'Camera feed too dark to verify candidate.'
+  },
+  'Lighting too dark for reliable monitoring': {
+    type: 'lighting_dark',
+    detail: 'Lighting is too dark for reliable AI monitoring.'
+  },
+  'Lighting changed sharply': {
+    type: 'proctoring_advisory',
+    detail: 'Lighting changed sharply and may affect AI monitoring.'
   },
   'Background movement detected': {
     type: 'background_motion',
@@ -1640,6 +2222,11 @@ PROCTORING_VIOLATION_MAP['Lighting too dark - face not visible'] = {
 // Track active detector messages so they are only logged when first seen.
 const activeViolations = new Set()
 const pendingAiViolations = new Map()
+const activeAiAdvisories = new Set()
+const pendingAiAdvisories = new Map()
+const reportingAiViolations = new Set()
+const reportingAiAdvisories = new Set()
+const aiSignalRetryAt = new Map()
 
 function getMappedProctoringViolation (message) {
   if (PROCTORING_VIOLATION_MAP[message]) {
@@ -1674,7 +2261,49 @@ function getAiWarningDwellMs (message) {
   return EXAM_CONFIG.aiWarningDefaultDwellMs
 }
 
-function processIncomingAiViolations (incomingViolations) {
+function getAiAdvisoryDwellMs (message) {
+  for (const [pattern, dwellMs] of Object.entries(
+    EXAM_CONFIG.aiAdvisoryDwellMs
+  )) {
+    if (message === pattern || message.startsWith(`${pattern}:`)) {
+      return dwellMs
+    }
+  }
+
+  return EXAM_CONFIG.aiAdvisoryDefaultDwellMs
+}
+
+function getAiSignalRetryKey (message, severity = 'warning') {
+  return `${severity}:${message}`
+}
+
+async function recordAiSignal (message, severity = 'warning') {
+  const mapped = getMappedProctoringViolation(message)
+
+  if (mapped) {
+    showViolationStatus({
+      type: mapped.type,
+      detail: mapped.detail,
+      severity
+    })
+    return reportViolation(mapped.type, mapped.detail, severity)
+  }
+
+  const fallbackType =
+    severity === 'warning' ? 'proctoring_alert' : 'proctoring_advisory'
+
+  showViolationStatus({
+    type: fallbackType,
+    detail: message,
+    severity
+  })
+  return reportViolation(fallbackType, message, severity)
+}
+
+function processIncomingAiViolations (
+  incomingViolations,
+  incomingAdvisories = new Set()
+) {
   const now = Date.now()
 
   for (const message of incomingViolations) {
@@ -1682,41 +2311,105 @@ function processIncomingAiViolations (incomingViolations) {
       pendingAiViolations.set(message, now)
     }
 
-    if (activeViolations.has(message)) {
+    if (activeViolations.has(message) || reportingAiViolations.has(message)) {
       continue
     }
 
     const firstSeenAt = pendingAiViolations.get(message) || now
     const dwellMs = getAiWarningDwellMs(message)
+    const retryKey = getAiSignalRetryKey(message, 'warning')
+    const retryAt = aiSignalRetryAt.get(retryKey) || 0
 
-    if (now - firstSeenAt < dwellMs) {
+    if (now - firstSeenAt < dwellMs || now < retryAt) {
       continue
     }
 
-    const mapped = getMappedProctoringViolation(message)
-    if (mapped) {
-      showViolationStatus({
-        type: mapped.type,
-        detail: mapped.detail,
-        severity: 'warning'
-      })
-      reportViolation(mapped.type, mapped.detail, 'warning')
-    } else {
-      showViolationStatus({
-        type: 'proctoring_alert',
-        detail: message,
-        severity: 'warning'
-      })
-      reportViolation('proctoring_alert', message, 'warning')
-    }
+    reportingAiViolations.add(message)
+    recordAiSignal(message, 'warning')
+      .then(wasRecorded => {
+        if (wasRecorded) {
+          activeViolations.add(message)
+          aiSignalRetryAt.delete(retryKey)
+          return
+        }
 
-    activeViolations.add(message)
+        aiSignalRetryAt.set(
+          retryKey,
+          Date.now() + EXAM_CONFIG.aiSignalRetryCooldownMs
+        )
+      })
+      .catch(() => {
+        aiSignalRetryAt.set(
+          retryKey,
+          Date.now() + EXAM_CONFIG.aiSignalRetryCooldownMs
+        )
+      })
+      .finally(() => {
+        reportingAiViolations.delete(message)
+      })
   }
 
   for (const message of Array.from(pendingAiViolations.keys())) {
     if (!incomingViolations.has(message)) {
       pendingAiViolations.delete(message)
       activeViolations.delete(message)
+      reportingAiViolations.delete(message)
+      aiSignalRetryAt.delete(getAiSignalRetryKey(message, 'warning'))
+    }
+  }
+
+  for (const message of incomingAdvisories) {
+    if (!pendingAiAdvisories.has(message)) {
+      pendingAiAdvisories.set(message, now)
+    }
+
+    if (
+      activeAiAdvisories.has(message) ||
+      reportingAiAdvisories.has(message)
+    ) {
+      continue
+    }
+
+    const firstSeenAt = pendingAiAdvisories.get(message) || now
+    const dwellMs = getAiAdvisoryDwellMs(message)
+    const retryKey = getAiSignalRetryKey(message, 'info')
+    const retryAt = aiSignalRetryAt.get(retryKey) || 0
+
+    if (now - firstSeenAt < dwellMs || now < retryAt) {
+      continue
+    }
+
+    reportingAiAdvisories.add(message)
+    recordAiSignal(message, 'info')
+      .then(wasRecorded => {
+        if (wasRecorded) {
+          activeAiAdvisories.add(message)
+          aiSignalRetryAt.delete(retryKey)
+          return
+        }
+
+        aiSignalRetryAt.set(
+          retryKey,
+          Date.now() + EXAM_CONFIG.aiSignalRetryCooldownMs
+        )
+      })
+      .catch(() => {
+        aiSignalRetryAt.set(
+          retryKey,
+          Date.now() + EXAM_CONFIG.aiSignalRetryCooldownMs
+        )
+      })
+      .finally(() => {
+        reportingAiAdvisories.delete(message)
+      })
+  }
+
+  for (const message of Array.from(pendingAiAdvisories.keys())) {
+    if (!incomingAdvisories.has(message)) {
+      pendingAiAdvisories.delete(message)
+      activeAiAdvisories.delete(message)
+      reportingAiAdvisories.delete(message)
+      aiSignalRetryAt.delete(getAiSignalRetryKey(message, 'info'))
     }
   }
 }
@@ -1838,18 +2531,55 @@ function startFrameCapture (video) {
 function startFrameCaptureWithOverlay (video) {
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')
+  const snapshotCanvas = document.createElement('canvas')
+  const snapshotCtx = snapshotCanvas.getContext('2d')
+  const snapshotsEnabled =
+    currentExamSettings.captureSnapshots ||
+    currentExamSettings.enableManualProctoring
+  const aiMonitoringEnabled = currentExamSettings.enableAiProctoring
 
   const WS_URL = window.PROCTOR_WS_URL || 'ws://localhost:8000/proctor'
   let ws = null
   let intervalId = null
+  let snapshotIntervalId = null
   let reconnectTimeoutId = null
   let hasConnectedOnce = false
   let stopped = false
+  let lastSnapshotUploadAt = 0
+  let snapshotUploadInFlight = false
+  let teacherBroadcastStarted = false
 
-  setAIProctoringStatus({
-    state: 'starting',
-    detail: 'Connecting the live feed to AI monitoring...'
-  })
+  if (aiMonitoringEnabled) {
+    setAIProctoringStatus({
+      state: 'starting',
+      detail: 'Connecting the live feed to AI monitoring...'
+    })
+  } else {
+    setAIProctoringStatus({
+      state: 'idle',
+      detail: snapshotsEnabled
+        ? 'AI proctoring is off. Manual monitoring snapshots are still active.'
+        : 'AI and snapshot monitoring are turned off for this exam.'
+    })
+  }
+
+  function ensureTeacherBroadcastStarted () {
+    if (teacherBroadcastStarted) {
+      return
+    }
+
+    teacherBroadcastStarted = true
+
+    if (teacherBroadcastStartTimeoutId) {
+      clearTimeout(teacherBroadcastStartTimeoutId)
+    }
+
+    teacherBroadcastStartTimeoutId = setTimeout(() => {
+      startTeacherWebRTCBroadcast().catch(error => {
+        console.warn('[Live Monitoring] WebRTC broadcast failed to initialize:', error)
+      })
+    }, 1200)
+  }
 
   function connect () {
     if (stopped) {
@@ -1865,6 +2595,7 @@ function startFrameCaptureWithOverlay (video) {
         state: 'running',
         detail: 'Live monitoring is connected and checking the camera feed.'
       })
+      ensureTeacherBroadcastStarted()
 
       if (hasConnectedOnce) {
         reportViolation(
@@ -1907,9 +2638,19 @@ function startFrameCaptureWithOverlay (video) {
         Array.from(incomingAdvisories)
       )
 
-      processIncomingAiViolations(incomingViolations)
+      processIncomingAiViolations(incomingViolations, incomingAdvisories)
 
-      if (incomingViolations.size === 0 && incomingAdvisories.size > 0) {
+      if (incomingViolations.size > 0) {
+        const primaryWarning = Array.from(incomingViolations)[0]
+        setAIProctoringStatus({
+          state: 'warning',
+          detail: primaryWarning || 'AI monitoring found an active warning.'
+        })
+        setExamStatus(
+          'AI proctoring detected an active warning. Check the warning panel and return to a safe state immediately.',
+          'warning'
+        )
+      } else if (incomingAdvisories.size > 0) {
         setAIProctoringStatus({
           state: 'running',
           detail: 'Live monitoring is active and showing advisory signals.'
@@ -1961,9 +2702,65 @@ function startFrameCaptureWithOverlay (video) {
     }
   }
 
-  function sendFrame () {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return
+  function captureSnapshotFrame () {
+    if (!snapshotCtx || !video.videoWidth || !video.videoHeight) {
+      return null
+    }
+
+    const targetWidth = Math.min(480, video.videoWidth)
+    const targetHeight = Math.max(
+      1,
+      Math.round((video.videoHeight / video.videoWidth) * targetWidth)
+    )
+
+    snapshotCanvas.width = targetWidth
+    snapshotCanvas.height = targetHeight
+    snapshotCtx.drawImage(video, 0, 0, targetWidth, targetHeight)
+
+    return snapshotCanvas.toDataURL('image/jpeg', 0.4).split(',')[1]
+  }
+
+  function maybeUploadSnapshot () {
+    if (!snapshotsEnabled) return
     if (!video.videoWidth) return
+    const now = Date.now()
+    if (
+      now - lastSnapshotUploadAt >= EXAM_CONFIG.liveSnapshotUploadIntervalMs &&
+      !snapshotUploadInFlight
+    ) {
+      const snapshotFrame = captureSnapshotFrame()
+
+      if (snapshotFrame) {
+        lastSnapshotUploadAt = now
+        snapshotUploadInFlight = true
+        uploadLiveSnapshot(snapshotFrame)
+          .catch(error => {
+            console.warn('[Live Monitoring] Snapshot upload failed:', error)
+          })
+          .finally(() => {
+            snapshotUploadInFlight = false
+          })
+      }
+    }
+  }
+
+  function ensureSnapshotLoop () {
+    if (!snapshotsEnabled) {
+      return
+    }
+
+    if (snapshotIntervalId) {
+      return
+    }
+
+    snapshotIntervalId = setInterval(maybeUploadSnapshot, EXAM_CONFIG.liveSnapshotUploadIntervalMs)
+  }
+
+  function sendFrame () {
+    maybeUploadSnapshot()
+    if (!video.videoWidth) return
+
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
     if (ws.bufferedAmount > 0) return
 
     canvas.width = video.videoWidth
@@ -1973,15 +2770,24 @@ function startFrameCaptureWithOverlay (video) {
     ws.send(JSON.stringify({ frame }))
   }
 
-  connect()
+  ensureSnapshotLoop()
+  if (aiMonitoringEnabled) {
+    connect()
+  } else {
+    ensureTeacherBroadcastStarted()
+  }
 
   return {
     stop () {
       stopped = true
       clearInterval(intervalId)
+      clearInterval(snapshotIntervalId)
       clearTimeout(reconnectTimeoutId)
+      clearTimeout(teacherBroadcastStartTimeoutId)
       intervalId = null
+      snapshotIntervalId = null
       reconnectTimeoutId = null
+      teacherBroadcastStartTimeoutId = null
       resetLiveMonitoringState()
 
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -2195,6 +3001,12 @@ function registerExamGuards () {
       setAIProctoringStatus(status)
     })
   }
+
+  if (window.electronAPI?.onWebRTCBroadcastState) {
+    window.electronAPI.onWebRTCBroadcastState(status => {
+      webRTCBroadcastState = status || webRTCBroadcastState
+    })
+  }
 }
 
 window.addEventListener('beforeunload', () => {
@@ -2210,6 +3022,21 @@ window.addEventListener('beforeunload', () => {
 })
 
 window.addEventListener('load', async () => {
+  // Check for valid session (either auth-based or room-based)
+  const hasAuthSession = getStoredSession()
+  const hasRoomEnrollment = await getRoomEnrollment()
+
+  if (!hasAuthSession && !hasRoomEnrollment) {
+    // No valid session - redirect to join page
+    window.location = 'join.html'
+    return
+  }
+
+  // Initialize room enrollment data if present
+  if (hasRoomEnrollment) {
+    roomEnrollment = hasRoomEnrollment
+  }
+
   startLiveUiRefreshLoop()
   initializeProctorDock()
 
@@ -2226,10 +3053,6 @@ window.addEventListener('load', async () => {
   registerExamGuards()
   registerAudioUnlockHandlers()
   await unlockAlertAudio()
-
-  if (window.electronAPI?.startFullscreen) {
-    window.electronAPI.startFullscreen()
-  }
 
   await loadExam()
 })

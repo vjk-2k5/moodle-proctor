@@ -5,6 +5,7 @@
 
 import fp from 'fastify-plugin';
 import fs from 'fs';
+import path from 'path';
 import { FastifyInstance } from 'fastify';
 import { createStudentService } from './student.service';
 import { authMiddleware } from '../../middleware/auth.middleware';
@@ -15,6 +16,7 @@ import {
   getManualSessionFromRequest,
   isManualProctoringRequest
 } from '../manual-proctoring/manual-proctoring.compat';
+import { getRoomEnrollmentContext } from '../room/room-enrollment.service';
 
 // ============================================================================
 // Routes Plugin
@@ -107,6 +109,33 @@ export default fp(async (fastify: FastifyInstance) => {
   fastify.get('/files/:filename', {
     handler: async (request, reply) => {
       const { filename } = request.params as { filename: string };
+      const safeFilename = path.basename(filename);
+      const roomEnrollment = await getRoomEnrollmentContext(
+        fastify.pg as any,
+        request.headers as Record<string, unknown>
+      );
+
+      if (roomEnrollment) {
+        const candidatePaths = [
+          roomEnrollment.questionPaperPath
+            ? path.resolve(process.cwd(), roomEnrollment.questionPaperPath.replace(/^[/\\]+/, ''))
+            : null,
+          path.resolve(process.cwd(), 'uploads', safeFilename),
+          getManualQuestionPaperPath(safeFilename)
+        ].filter((value): value is string => Boolean(value));
+
+        const filePath = candidatePaths.find(candidate => fs.existsSync(candidate));
+
+        if (!filePath) {
+          return reply.code(404).send({
+            success: false,
+            error: 'File not found'
+          });
+        }
+
+        reply.header('Content-Type', 'application/pdf');
+        return reply.send(fs.createReadStream(filePath));
+      }
 
       if (isManualProctoringRequest(request)) {
         const session = getManualSessionFromRequest(request as any);
@@ -132,12 +161,12 @@ export default fp(async (fastify: FastifyInstance) => {
       }
 
       // Security: Prevent path traversal
-      const safeFilename = filename.replace(/..\//g, '').replace(/\\/g, '');
+      const sanitizedFilename = filename.replace(/..\//g, '').replace(/\\/g, '');
 
       // Basic file extension check
       const allowedExtensions = ['.pdf', '.png', '.jpg', '.jpeg'];
       const hasAllowedExtension = allowedExtensions.some(ext =>
-        safeFilename.toLowerCase().endsWith(ext)
+        sanitizedFilename.toLowerCase().endsWith(ext)
       );
 
       if (!hasAllowedExtension) {
@@ -152,8 +181,8 @@ export default fp(async (fastify: FastifyInstance) => {
       return reply.send({
         success: true,
         data: {
-          filename: safeFilename,
-          url: `/uploads/${safeFilename}`
+          filename: sanitizedFilename,
+          url: `/uploads/${sanitizedFilename}`
         }
       });
     }

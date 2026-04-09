@@ -70,6 +70,7 @@ interface ManualAttemptState {
 
 const sessions = new Map<string, ManualSession>();
 const examAttempts = new Map<string, ManualAttemptState>();
+let manualAttemptSequence = 0;
 
 export function ensureManualProctoringDirectories(): void {
   fs.mkdirSync(MANUAL_PROCTORING_UPLOADS_DIR, { recursive: true });
@@ -93,6 +94,8 @@ export function validateManualCredentials(email: string, password: string): bool
 export function createManualSession(): ManualSession {
   const token = crypto.randomBytes(24).toString('hex');
   const expiresAt = Date.now() + MANUAL_SESSION_TTL_MS;
+
+  resetManualAttempt(manualStudent.id);
 
   const session: ManualSession = {
     token,
@@ -372,18 +375,27 @@ export function appendManualWarningLog(
 
 function getAttemptForStudent(studentId: string): ManualAttemptState {
   if (!examAttempts.has(studentId)) {
-    examAttempts.set(studentId, {
-      id: 1,
-      status: 'not_started',
-      startedAt: null,
-      submittedAt: null,
-      submissionReason: null,
-      violationCount: 0,
-      violations: []
-    });
+    return resetManualAttempt(studentId);
   }
 
   return examAttempts.get(studentId)!;
+}
+
+function resetManualAttempt(studentId: string): ManualAttemptState {
+  manualAttemptSequence += 1;
+
+  const nextAttempt: ManualAttemptState = {
+    id: manualAttemptSequence,
+    status: 'not_started',
+    startedAt: null,
+    submittedAt: null,
+    submissionReason: null,
+    violationCount: 0,
+    violations: []
+  };
+
+  examAttempts.set(studentId, nextAttempt);
+  return nextAttempt;
 }
 
 function serializeAttempt(attempt: ManualAttemptState): {

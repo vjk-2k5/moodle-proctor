@@ -3,15 +3,24 @@
 // Type definitions for WebRTC and MediaSoup
 // ============================================================================
 
-import type * as mediasoup from 'mediasoup/node/lib/types';
+import type {
+  Consumer,
+  DtlsParameters,
+  IceCandidate,
+  IceParameters,
+  Producer,
+  Router,
+  RtpParameters,
+  WebRtcTransport,
+} from 'mediasoup/node/lib/types';
 
 export interface WebRTCPeer {
   peerId: string;
   userId: number;
   studentName: string;
-  transport?: mediasoup.WebRtcTransport;
-  producer?: mediasoup.Producer;
-  consumers: Map<string, mediasoup.Consumer>;
+  transport?: WebRtcTransport;
+  producers: Map<string, Producer>;
+  consumers: Map<string, Consumer>;
   isProducing: boolean;
   connectionState: 'connecting' | 'connected' | 'disconnected';
   videoEnabled: boolean;
@@ -22,38 +31,21 @@ export interface WebRTCPeer {
 export interface WebRTCRoom {
   roomId: string;
   examId: number;
-  router?: mediasoup.Router;
+  router?: Router;
   peers: Map<string, WebRTCPeer>;
   createdAt: number;
 }
 
-export interface RTCSignalingMessage {
-  type:
-    | 'offer'
-    | 'answer'
-    | 'ice-candidate'
-    | 'join-room'
-    | 'leave-room'
-    | 'get-consumers'
-    | 'connect-transport'
-    | 'produce'
-    | 'consume'
-    | 'resume-consumer'
-    | 'pause-consumer';
-  data?: any;
-  error?: string;
-}
-
 export interface ProducerTransportParams {
   id: string;
-  iceParameters: mediasoup.IceParameters;
-  iceCandidates: mediasoup.IceCandidate[];
-  dtlsParameters: mediasoup.DtlsParameters;
+  iceParameters: IceParameters;
+  iceCandidates: IceCandidate[];
+  dtlsParameters: DtlsParameters;
 }
 
 export interface ConsumerParams {
   id: string;
   producerId: string;
   kind: 'audio' | 'video';
-  rtpParameters: mediasoup.RtpParameters;
+  rtpParameters: RtpParameters;
 }

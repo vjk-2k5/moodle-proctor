@@ -38,7 +38,13 @@ Health check: http://localhost:${config.port}/health
     `);
 
   } catch (error) {
-    logger.error('Failed to start server:', error);
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error(`Failed to start server: ${message}`);
+
+    if (error instanceof Error && error.stack) {
+      logger.error(error.stack);
+    }
+
     process.exit(1);
   }
 }
@@ -59,12 +65,19 @@ process.on('SIGINT', async () => {
 
 // Handle uncaught errors
 process.on('uncaughtException', (error) => {
-  logger.error('Uncaught exception:', error);
+  logger.error(`Uncaught exception: ${error.message}`);
+  if (error.stack) {
+    logger.error(error.stack);
+  }
   process.exit(1);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled rejection at:', promise, 'reason:', reason);
+process.on('unhandledRejection', (reason, _promise) => {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  logger.error(`Unhandled rejection at promise: ${message}`);
+  if (reason instanceof Error && reason.stack) {
+    logger.error(reason.stack);
+  }
   process.exit(1);
 });
 

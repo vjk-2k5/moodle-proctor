@@ -13,6 +13,11 @@ import {
   isManualProctoringRequest,
   validateManualSessionFromRequest
 } from '../modules/manual-proctoring/manual-proctoring.compat';
+import {
+  getRoomEnrollmentContext,
+  hasRoomEnrollmentHeaders,
+  isValidRoomEnrollmentHeaders
+} from '../modules/room/room-enrollment.service';
 
 // ============================================================================
 // Auth Middleware
@@ -27,6 +32,39 @@ export async function authMiddleware(
   reply: FastifyReply
 ): Promise<void> {
   try {
+    const headers = request.headers as Record<string, unknown>;
+
+    if (hasRoomEnrollmentHeaders(headers)) {
+      if (!isValidRoomEnrollmentHeaders(headers)) {
+        await reply.code(403).send({
+          success: false,
+          error: 'Invalid enrollment signature. Please rejoin the room.'
+        });
+        return;
+      }
+
+      const roomEnrollment = await getRoomEnrollmentContext(request.server.pg as any, headers);
+
+      if (!roomEnrollment) {
+        await reply.code(401).send({
+          success: false,
+          error: 'Room enrollment not found. Please rejoin the room.'
+        });
+        return;
+      }
+
+      (request as any).user = roomEnrollment.user;
+      (request as any).roomEnrollment = roomEnrollment;
+      (request as any).tokenPayload = {
+        userId: roomEnrollment.user.id,
+        username: roomEnrollment.user.username,
+        email: roomEnrollment.user.email,
+        role: roomEnrollment.user.role,
+        exp: Math.floor(Date.now() / 1000) + 3600
+      };
+      return;
+    }
+
     if (isManualProctoringRequest(request as any)) {
       const manualSessionResult = validateManualSessionFromRequest(request as any);
 
@@ -57,14 +95,18 @@ export async function authMiddleware(
       return;
     }
 
-    // Extract token from Authorization header
     const authHeader = request.headers.authorization;
+    const cookieToken = (request as any).cookies?.auth_token;
+    const token =
+      authHeader && authHeader.startsWith('Bearer ')
+        ? authHeader.substring(7)
+        : typeof cookieToken === 'string' && cookieToken.trim()
+        ? cookieToken.trim()
+        : null;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!token) {
       throw new UnauthorizedError('Missing or invalid authorization header');
     }
-
-    const token = authHeader.substring(7);
 
     // Validate token
     const payload = jwtService.validateToken(token);
@@ -95,10 +137,35 @@ export async function optionalAuthMiddleware(
   _reply: FastifyReply
 ): Promise<void> {
   try {
-    const authHeader = request.headers.authorization;
+    const headers = request.headers as Record<string, unknown>;
 
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.substring(7);
+    if (hasRoomEnrollmentHeaders(headers) && isValidRoomEnrollmentHeaders(headers)) {
+      const roomEnrollment = await getRoomEnrollmentContext(request.server.pg as any, headers);
+
+      if (roomEnrollment) {
+        (request as any).user = roomEnrollment.user;
+        (request as any).roomEnrollment = roomEnrollment;
+        (request as any).tokenPayload = {
+          userId: roomEnrollment.user.id,
+          username: roomEnrollment.user.username,
+          email: roomEnrollment.user.email,
+          role: roomEnrollment.user.role,
+          exp: Math.floor(Date.now() / 1000) + 3600
+        };
+        return;
+      }
+    }
+
+    const authHeader = request.headers.authorization;
+    const cookieToken = (request as any).cookies?.auth_token;
+    const token =
+      authHeader && authHeader.startsWith('Bearer ')
+        ? authHeader.substring(7)
+        : typeof cookieToken === 'string' && cookieToken.trim()
+        ? cookieToken.trim()
+        : null;
+
+    if (token) {
 
       try {
         const payload = jwtService.validateToken(token);

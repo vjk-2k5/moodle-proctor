@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   # ============================================================================
@@ -35,6 +34,8 @@ services:
       - MARIADB_USER=bn_moodle
       - MARIADB_PASSWORD=bitnami
       - MARIADB_DATABASE=bitnami_moodle
+      - MARIADB_CHARACTER_SET=utf8mb4
+      - MARIADB_COLLATE=utf8mb4_unicode_ci
     volumes:
       - mariadb_data:/bitnami/mariadb
     networks:
@@ -59,12 +60,13 @@ services:
       - MOODLE_DATABASE_PASSWORD=bitnami
       - MOODLE_DATABASE_NAME=bitnami_moodle
       - MOODLE_USERNAME=admin
-      - MOODLE_PASSWORD=admin123!
+      - MOODLE_PASSWORD=Admin123!
       - MOODLE_EMAIL=admin@example.com
       - MOODLE_SITE_NAME=Local Moodle
     volumes:
       - moodle_data:/bitnami/moodle
       - moodledata_data:/bitnami/moodledata
+      - ./moodle-config/moodle-vhost.conf:/opt/bitnami/apache/conf/vhosts/moodle-vhost.conf:ro
     networks:
       - proctor-network
 
@@ -75,6 +77,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      target: migration
     container_name: moodle-proctor-migration
     depends_on:
       postgres:
@@ -83,8 +86,8 @@ services:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://proctor_user:proctor_pass@postgres:5432/moodle_proctor
     volumes:
-      - ./backend:/app
-      - /app/node_modules
+      - ./backend/uploads:/app/uploads
+      - ./backend/logs:/app/logs
     networks:
       - proctor-network
     command: ["npm", "run", "migrate"]
@@ -113,12 +116,16 @@ services:
       - DATABASE_URL=postgresql://proctor_user:proctor_pass@postgres:5432/moodle_proctor
       - MOODLE_BASE_URL=http://moodle:8080
       - MOODLE_SERVICE=moodle_mobile_app
-      - JWT_SECRET=change-this-secret-in-production-use-openssl-rand-hex-32
+      - BACKEND_URL=http://localhost:5000
+      - LTI_CONSUMER_KEY=moodle
+      - LTI_CONSUMER_SECRET=secret
+      - LTI_DISABLE_SIGNATURE_VALIDATION=true
+      - JWT_SECRET=826f192d8d3a2bc65dfd9fd7becdda3b865c844886b317f1e7da6ec174cf2a60
       - AI_SERVICE_URL=ws://ai-proctoring:8000/proctor
+      - AI_SERVICE_SHARED_SECRET=e609b393fd614dd4a49a07a45bf63c98deaad74df7946bf89147bc44acaf6546
+      - FRAME_SIGNATURE_SECRET=27677681f7a6ad4b44323172c90af0202f9f6d4ad98340c975ad73482527a5f8
       - LOG_LEVEL=info
     volumes:
-      - ./backend:/app
-      - /app/node_modules
       - ./backend/uploads:/app/uploads  # For PDFs, screenshots
       - ./backend/logs:/app/logs
     networks:
@@ -126,6 +133,31 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================================================
+  # FRONTEND (Next.js)
+  # ============================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: moodle-proctor-frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://localhost:5000
+      - NEXT_PUBLIC_BACKEND_URL=http://backend:5000
+    networks:
+      - proctor-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -140,6 +172,9 @@ services:
     container_name: ai-proctoring-service
     ports:
       - "8000:8000"
+    environment:
+      - SHARED_SECRET=e609b393fd614dd4a49a07a45bf63c98deaad74df7946bf89147bc44acaf6546
+      - LOG_LEVEL=info
     volumes:
       - ./ai_proctoring:/app
       - ./ai_proctoring/screenshots:/app/screenshots
@@ -147,6 +182,11 @@ services:
     networks:
       - proctor-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     # GPU support (if available)
     # deploy:
     #   resources:

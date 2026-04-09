@@ -1,6 +1,5 @@
-import { ReportTable } from "@components/ReportTable";
+import { redirect } from "next/navigation";
 
 export default function ReportsPage() {
-  return <ReportTable />;
+  redirect("/dashboard/monitoring");
 }
-

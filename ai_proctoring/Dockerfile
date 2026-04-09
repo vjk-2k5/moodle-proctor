@@ -14,12 +14,16 @@ ENV PYTHONUNBUFFERED=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # PortAudio dependencies for pyaudio
     libportaudio2 \
-    libportaudiocpp0 \
     ffmpeg \
     libsm6 \
     libxext6 \
     libxrender-dev \
-    libgl1-mesa-glx \
+    libgl1 \
+    libglib2.0-0 \
+    libglib2.0-dev \
+    libgbm1 \
+    libegl1 \
+    libgles2 \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
@@ -30,7 +34,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 
 # Copy dependency files
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock README.md ./
 
 # Install dependencies using uv
 RUN uv sync --frozen --no-dev

@@ -1,98 +1,224 @@
-import { alerts, students } from "@mock/data";
-import type { Alert } from "@app-types/index";
-import { FiAlertTriangle, FiMic, FiMonitor, FiSmartphone } from "react-icons/fi";
+"use client";
 
-const alertIcon = (type: Alert["type"]) => {
-  switch (type) {
-    case "multiple_faces":
-      return <FiAlertTriangle className="h-4 w-4 text-red-600" />;
-    case "phone_detected":
-      return <FiSmartphone className="h-4 w-4 text-amber-600" />;
-    case "left_screen":
-      return <FiMonitor className="h-4 w-4 text-red-600" />;
-    case "background_voice":
-      return <FiMic className="h-4 w-4 text-blue-600" />;
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FiAlertTriangle, FiMonitor, FiSmartphone } from "react-icons/fi";
+
+import { backendAPI, type RoomMonitoringStudent } from "@/lib/backend";
+import {
+  formatTimeOnly,
+  getAlertSeverity,
+  getRiskStatus
+} from "@/lib/dashboard";
+import { StatusBadge } from "./StatusBadge";
+
+interface Props {
+  roomId?: number;
+  roomLabel?: string;
+}
+
+const alertIcon = (severity: "low" | "medium" | "high") => {
+  if (severity === "high") {
+    return <FiAlertTriangle className="h-4 w-4 text-red-600" />;
   }
+
+  if (severity === "medium") {
+    return <FiSmartphone className="h-4 w-4 text-amber-600" />;
+  }
+
+  return <FiMonitor className="h-4 w-4 text-blue-600" />;
 };
 
-const severityPill = (severity: Alert["severity"]) => {
+const severityPill = (severity: "low" | "medium" | "high") => {
   if (severity === "high") {
-    return "bg-red-100 text-red-700 border-red-300";
+    return "border-red-200 bg-red-50 text-red-700";
   }
   if (severity === "medium") {
-    return "bg-amber-100 text-amber-700 border-amber-300";
+    return "border-amber-200 bg-amber-50 text-amber-700";
   }
-  return "bg-blue-100 text-blue-700 border-blue-300";
+  return "border-blue-200 bg-blue-50 text-blue-700";
 };
 
-export const AlertPanel = () => {
+const severityBorder = (severity: "low" | "medium" | "high") => {
+  if (severity === "high") {
+    return "border-red-200/80";
+  }
+  if (severity === "medium") {
+    return "border-amber-200/80";
+  }
+  return "border-blue-200/80";
+};
+
+export const AlertPanel = ({ roomId, roomLabel }: Props) => {
+  const [students, setStudents] = useState<RoomMonitoringStudent[]>([]);
+  const [isLoading, setIsLoading] = useState(Boolean(roomId));
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchAlerts = useCallback(async () => {
+    if (!roomId) {
+      setStudents([]);
+      setIsLoading(false);
+      setError(null);
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await backendAPI.getRoomStudents(roomId);
+      if (response.success) {
+        setStudents(response.data);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Failed to load room alerts"));
+      setStudents([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [roomId]);
+
+  useEffect(() => {
+    void fetchAlerts();
+
+    if (!roomId) {
+      return;
+    }
+
+    const timerId = window.setInterval(() => {
+      void fetchAlerts();
+    }, 2500);
+
+    return () => {
+      window.clearInterval(timerId);
+    };
+  }, [fetchAlerts, roomId]);
+
+  const attentionQueue = useMemo(
+    () =>
+      students
+        .filter((student) => student.warningCount > 0)
+        .sort((a, b) => {
+          if (b.warningCount !== a.warningCount) {
+            return b.warningCount - a.warningCount;
+          }
+
+          return new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime();
+        })
+        .slice(0, 8)
+        .map((student) => ({
+          id: student.enrollmentId,
+          studentName: student.studentName,
+          studentLabel: student.studentEmail,
+          severity: getAlertSeverity(student.warningCount),
+          message:
+            student.warningCount === 1
+              ? "1 room warning requires review."
+              : `${student.warningCount} room warnings require review.`,
+          timestamp: formatTimeOnly(student.submittedAt || student.startedAt),
+          examName: roomLabel || "Current room",
+          riskStatus: getRiskStatus(student.warningCount)
+        })),
+    [roomLabel, students]
+  );
+
+  const highPriority = attentionQueue.filter((alert) => alert.severity === "high").length;
+  const mediumPriority = attentionQueue.filter((alert) => alert.severity === "medium").length;
+
   return (
-    <aside className="bg-white rounded-lg flex flex-col h-full max-h-[600px] border border-gray-200 shadow-sm">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-blue-50">
-        <div className="flex items-center gap-3">
-          <FiAlertTriangle className="h-5 w-5 text-amber-600" />
-          <div className="flex flex-col">
-            <h2 className="text-base font-bold text-gray-900">
-              AI Alerts
+    <section className="surface-panel table-shell">
+      <div className="border-b border-slate-200/80 px-5 py-5 md:px-6 md:py-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <span className="eyebrow-pill">Incident queue</span>
+            <h2 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950">
+              Alerts waiting for review
             </h2>
-            <p className="text-xs text-gray-600 mt-0.5">
-              Real-time anomalies during exam
+            <p className="section-copy mt-3 max-w-2xl">
+              {roomLabel
+                ? `Warnings for ${roomLabel} appear here first so you can review one room at a time.`
+                : "Select a live room to see its warning queue."}
             </p>
           </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:min-w-[18rem]">
+            <div className="metric-card">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-700">High</p>
+              <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                {isLoading ? "..." : highPriority}
+              </p>
+            </div>
+            <div className="metric-card">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Medium</p>
+              <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                {isLoading ? "..." : mediumPriority}
+              </p>
+            </div>
+          </div>
         </div>
-        <span className="text-xs font-semibold text-blue-600 bg-blue-100 px-2 py-1 rounded">
-          {alerts.length}
-        </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto scroll-thin px-4 py-3 space-y-3">
-        {alerts.map((alert) => {
-          const student = students.find((s) => s.id === alert.studentId);
-          return (
-            <div
-              key={alert.id}
-              className="flex items-start gap-3 rounded-lg bg-gray-50 border border-gray-200 p-3 hover:shadow-sm transition-shadow"
-            >
-              <div className="mt-0.5 flex-shrink-0">{alertIcon(alert.type)}</div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-sm font-medium text-gray-900">
-                    {alert.message}
-                  </p>
-                  <span className="text-xs text-gray-500 whitespace-nowrap mt-0.5">
-                    {alert.timestamp}
-                  </span>
-                </div>
-                {student && (
-                  <p className="text-xs text-gray-600 mt-2">
-                    <span className="font-medium">{student.name}</span> · {student.id}
-                  </p>
-                )}
-                <div className="mt-2 flex items-center gap-2">
-                  <span
-                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${severityPill(
-                      alert.severity
-                    )}`}
-                  >
-                    {alert.severity === "high"
-                      ? "High"
-                      : alert.severity === "medium"
-                      ? "Medium"
-                      : "Low"}
-                  </span>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+      <div className="max-h-[780px] space-y-3 overflow-y-auto px-4 py-4 md:px-5 md:py-5 scroll-thin">
+        {error ? (
+          <div className="rounded-[24px] border border-red-200 bg-red-50 px-4 py-4 text-sm font-medium text-red-700">
+            {error.message}
+          </div>
+        ) : null}
 
-        {alerts.length === 0 && (
-          <div className="text-center text-sm text-gray-500 py-8">
-            No alerts at the moment
+        {!error && !roomId && (
+          <div className="empty-state">
+            No room selected yet.
+          </div>
+        )}
+
+        {!error && roomId &&
+          attentionQueue.map((alert) => (
+            <article
+              key={alert.id}
+              className={`surface-card rounded-[24px] border px-4 py-4 ${severityBorder(alert.severity)}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100">
+                    {alertIcon(alert.severity)}
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-slate-950">{alert.studentName}</p>
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${severityPill(
+                          alert.severity
+                        )}`}
+                      >
+                        {alert.severity}
+                      </span>
+                      <StatusBadge status={alert.riskStatus} />
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600">{alert.examName}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-700">{alert.message}</p>
+                    <p className="mt-2 text-xs text-slate-400">{alert.studentLabel}</p>
+                  </div>
+                </div>
+
+                <span className="whitespace-nowrap text-xs font-medium uppercase tracking-[0.16em] text-slate-400">
+                  {alert.timestamp}
+                </span>
+              </div>
+            </article>
+          ))}
+
+        {!error && roomId && !isLoading && attentionQueue.length === 0 && (
+          <div className="empty-state">
+            No warnings are waiting for review right now.
+          </div>
+        )}
+
+        {roomId && isLoading && (
+          <div className="empty-state">
+            Loading alert queue...
           </div>
         )}
       </div>
-    </aside>
+    </section>
   );
 };
-

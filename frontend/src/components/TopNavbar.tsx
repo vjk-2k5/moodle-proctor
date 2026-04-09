@@ -1,50 +1,84 @@
-import { FiBell } from "react-icons/fi";
-import { alerts } from "@mock/data";
+"use client";
+
+import { usePathname } from "next/navigation";
+import { FiActivity, FiClock } from "react-icons/fi";
+
+import { useTeacherStats } from "@/hooks/useTeacherData";
+
+const pageMeta: Record<string, { title: string; subtitle: string }> = {
+  "/dashboard": {
+    title: "Overview",
+    subtitle: "Check exam readiness, live rooms, and answer-sheet progress from one place."
+  },
+  "/dashboard/overview": {
+    title: "Overview",
+    subtitle: "Check exam readiness, live rooms, and answer-sheet progress from one place."
+  },
+  "/dashboard/monitoring": {
+    title: "Monitoring",
+    subtitle: "Create a room, share the student link, and follow the live exam session."
+  },
+  "/dashboard/exams": {
+    title: "Exams",
+    subtitle: "Create exams, upload question papers, and manage proctoring settings."
+  },
+  "/dashboard/alerts": {
+    title: "Alerts",
+    subtitle: "Review flagged activity and focus on the rooms that need attention first."
+  },
+  "/dashboard/answer-sheets": {
+    title: "Answer Sheets",
+    subtitle: "Review uploaded PDFs and match each submission to the correct student and exam."
+  },
+  "/dashboard/students": {
+    title: "Students",
+    subtitle: "Check attempt status and manage visibility from one roster."
+  },
+  "/dashboard/reports": {
+    title: "Reports",
+    subtitle: "Review completed evidence and exam outcomes."
+  },
+  "/dashboard/settings": {
+    title: "Settings",
+    subtitle: "Adjust the workspace and supporting options."
+  }
+};
 
 export const TopNavbar = () => {
-  const activeAlerts = alerts.length;
+  const pathname = usePathname();
+  const meta = pageMeta[pathname] ?? pageMeta["/dashboard/overview"];
+  const { stats, isLoading, error } = useTeacherStats();
+
+  const generatedAt = stats?.generatedAt
+    ? new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit"
+      }).format(new Date(stats.generatedAt))
+    : null;
 
   return (
-    <header className="bg-blue-600 text-white shadow-md fixed top-0 left-64 right-0 z-40">
-      <div className="w-full px-6 py-4 flex items-center justify-between">
-        
-        {/* Left */}
+    <header className="surface-panel rounded-[24px] px-5 py-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Proctoring Dashboard</h1>
-          <p className="text-blue-100 text-sm mt-1">
-            Physics Midterm - Group A
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-950">{meta.title}</h1>
+          <p className="mt-1 text-sm text-slate-600">{meta.subtitle}</p>
         </div>
 
-        {/* Right */}
-        <div className="flex items-center gap-6">
-          
-          <div className="text-right">
-            <p className="text-sm text-blue-100">Exam Time Remaining</p>
-            <p className="text-lg font-semibold">01:23:18</p>
-          </div>
-
-          <div className="relative">
-            <button className="relative h-10 w-10 flex items-center justify-center rounded-lg bg-blue-700 hover:bg-blue-800">
-              <FiBell className="h-5 w-5" />
-              {activeAlerts > 0 && (
-                <span className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-red-500 text-xs flex items-center justify-center">
-                  {activeAlerts}
-                </span>
-              )}
-            </button>
-          </div>
-
-          <div className="flex items-center gap-3 pl-6 border-l border-blue-400">
-            <div className="h-9 w-9 rounded-lg bg-blue-400 flex items-center justify-center text-xs font-bold">
-              A
-            </div>
-            <div className="text-sm">
-              <p className="font-medium">Dr. Alice Nguyen</p>
-              <p className="text-blue-100 text-xs">Teacher</p>
-            </div>
-          </div>
-
+        <div className="flex flex-wrap gap-2 text-sm">
+          <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-slate-700">
+            <span className={`h-2 w-2 rounded-full ${error ? "bg-red-500" : "bg-emerald-500"}`} />
+            {error ? "Backend issue" : isLoading ? "Checking backend" : "Backend connected"}
+          </span>
+          <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-slate-700">
+            <FiActivity className="h-4 w-4" />
+            {isLoading ? "Loading summary" : `${stats?.students.active ?? 0} active students`}
+          </span>
+          <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-slate-700">
+            <FiClock className="h-4 w-4" />
+            {generatedAt ? `Updated ${generatedAt}` : "Waiting for updates"}
+          </span>
         </div>
       </div>
     </header>

@@ -844,6 +844,213 @@ video{
  text-align:center;
 }
 
+.upload-session-page{
+ display:block;
+ height:auto;
+ min-height:100vh;
+ padding:28px 0;
+}
+
+.upload-session-shell{
+ width:min(1100px, calc(100vw - 40px));
+ margin:0 auto;
+ display:flex;
+ flex-direction:column;
+ gap:20px;
+}
+
+.upload-session-hero{
+ display:flex;
+ justify-content:space-between;
+ align-items:flex-start;
+ gap:20px;
+ padding:24px 28px;
+ border-radius:24px;
+ background:linear-gradient(135deg, #0f1728 0%, #173b73 58%, #0b7a75 100%);
+ color:#ffffff;
+ box-shadow:var(--shadow-soft);
+}
+
+.upload-session-kicker{
+ font-size:12px;
+ font-weight:800;
+ letter-spacing:0.08em;
+ text-transform:uppercase;
+ color:#98f5e1;
+}
+
+.upload-session-title{
+ margin:8px 0 0;
+ font-size:34px;
+ line-height:1.05;
+}
+
+.upload-session-copy{
+ margin:12px 0 0;
+ max-width:62ch;
+ color:rgba(255,255,255,0.86);
+ line-height:1.6;
+}
+
+.upload-session-badge{
+ display:inline-flex;
+ align-items:center;
+ justify-content:center;
+ min-width:160px;
+ padding:10px 14px;
+ border-radius:999px;
+ border:1px solid rgba(255,255,255,0.18);
+ background:rgba(255,255,255,0.08);
+ font-size:13px;
+ font-weight:700;
+}
+
+.upload-session-badge-awaiting_upload,
+.upload-session-badge-upload_in_progress{
+ background:rgba(255,255,255,0.12);
+ color:#f8fafc;
+}
+
+.upload-session-badge-uploaded{
+ background:#ecfdf3;
+ border-color:#abefc6;
+ color:#027a48;
+}
+
+.upload-session-badge-expired{
+ background:#fef3f2;
+ border-color:#fecdca;
+ color:#b42318;
+}
+
+.upload-session-grid{
+ display:grid;
+ grid-template-columns:minmax(340px, 0.95fr) minmax(360px, 1.05fr);
+ gap:20px;
+ align-items:start;
+}
+
+.upload-session-card{
+ background:rgba(255,255,255,0.94);
+ border:1px solid var(--border-soft);
+ border-radius:24px;
+ padding:24px;
+ box-shadow:var(--shadow-soft);
+}
+
+.upload-session-card-qr{
+ position:sticky;
+ top:20px;
+}
+
+.upload-session-card-header{
+ display:flex;
+ justify-content:space-between;
+ align-items:flex-start;
+ gap:12px;
+ margin-bottom:18px;
+}
+
+.upload-session-card-title{
+ margin:0;
+ font-size:22px;
+ color:var(--text-strong);
+}
+
+.upload-session-card-copy{
+ margin:8px 0 0;
+ color:var(--text-muted);
+ line-height:1.5;
+}
+
+.upload-session-qr-frame{
+ min-height:360px;
+ display:flex;
+ align-items:center;
+ justify-content:center;
+ padding:18px;
+ border-radius:20px;
+ border:1px dashed var(--border-strong);
+ background:
+  linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(248,250,252,0.98) 100%);
+}
+
+.upload-session-qr-frame img{
+ width:min(100%, 320px);
+ height:auto;
+ display:block;
+}
+
+.upload-session-qr-fallback{
+ color:var(--text-muted);
+ font-weight:600;
+}
+
+.upload-session-link-row{
+ margin-top:16px;
+}
+
+.upload-session-link{
+ color:var(--brand);
+ font-weight:700;
+ text-decoration:none;
+ word-break:break-all;
+}
+
+.upload-session-link:hover{
+ color:var(--brand-deep);
+ text-decoration:underline;
+}
+
+.upload-session-meta{
+ margin:0;
+ display:flex;
+ flex-direction:column;
+ gap:14px;
+}
+
+.upload-session-meta-row{
+ display:grid;
+ grid-template-columns:140px minmax(0, 1fr);
+ gap:14px;
+ padding-bottom:14px;
+ border-bottom:1px solid #eaecf0;
+}
+
+.upload-session-meta-row dt{
+ margin:0;
+ color:var(--text-muted);
+ font-size:13px;
+ font-weight:700;
+ text-transform:uppercase;
+ letter-spacing:0.04em;
+}
+
+.upload-session-meta-row dd{
+ margin:0;
+ color:var(--text-strong);
+ font-weight:600;
+ line-height:1.5;
+ word-break:break-word;
+}
+
+.upload-session-meta-row dd span{
+ color:var(--text-muted);
+ font-size:13px;
+ font-weight:500;
+}
+
+.upload-session-token{
+ font-family:"Consolas", "Courier New", monospace;
+ font-size:13px;
+}
+
+.upload-session-actions{
+ margin-top:20px;
+ display:flex;
+ justify-content:flex-end;
+}
+
 @media (max-width: 900px){
  body{
   display:block;
@@ -1024,5 +1231,32 @@ video{
  .completion-card{
   width:min(92vw, 100%);
   padding:28px 20px;
+ }
+
+ .upload-session-shell{
+  width:min(94vw, 100%);
+ }
+
+ .upload-session-hero{
+  flex-direction:column;
+  padding:20px;
+  border-radius:20px;
+ }
+
+ .upload-session-title{
+  font-size:28px;
+ }
+
+ .upload-session-grid{
+  grid-template-columns:1fr;
+ }
+
+ .upload-session-card-qr{
+  position:static;
+ }
+
+ .upload-session-meta-row{
+  grid-template-columns:1fr;
+  gap:6px;
  }
 }

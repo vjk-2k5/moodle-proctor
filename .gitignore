@@ -33,3 +33,7 @@ ai_proctoring/screenshots/
 ai_proctoring/violations.jsonl
 ai_proctoring/report*
 ai_proctoring/reports/
+.gstack/
+
+tests/unit/ai_proctoring/venv
+tests/unit/ai_proctoring/__pycache__

@@ -1,8 +1,3 @@
-// ============================================================================
-// VideoStream Component
-// Displays a single video stream from a student
-// ============================================================================
-
 'use client';
 
 import { useEffect, useRef } from 'react';
@@ -16,6 +11,7 @@ export interface VideoStreamProps {
   connectionState: 'connecting' | 'connected' | 'disconnected';
   videoEnabled: boolean;
   audioEnabled: boolean;
+  statusLabel?: 'not_started' | 'in_progress' | 'submitted' | 'terminated';
 }
 
 export function VideoStream({
@@ -26,6 +22,7 @@ export function VideoStream({
   connectionState,
   videoEnabled,
   audioEnabled,
+  statusLabel,
 }: VideoStreamProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -38,70 +35,62 @@ export function VideoStream({
     }
   }, [stream]);
 
-  const statusColor = {
-    connecting: 'bg-yellow-500',
-    connected: 'bg-green-500',
-    disconnected: 'bg-red-500',
+  const connectionLabel = {
+    connecting: 'Connecting',
+    connected: 'Live',
+    disconnected: 'Disconnected',
   }[connectionState];
 
+  const statusText =
+    statusLabel === 'submitted'
+      ? 'Submitted'
+      : statusLabel === 'terminated'
+      ? 'Ended'
+      : connectionLabel;
+
   return (
-    <div className="relative w-full h-full bg-black rounded-lg overflow-hidden shadow-lg group hover:shadow-xl transition-shadow">
-      {/* Video Element */}
+    <article className="relative h-full bg-slate-950">
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted={false}
-        className="w-full h-full object-cover"
+        className="h-full w-full object-cover"
       />
 
-      {/* Status Indicator */}
-      <div className="absolute top-2 left-2 flex items-center gap-2">
-        <div className={`h-3 w-3 rounded-full ${statusColor}`} />
-        <span className="text-xs font-semibold text-white bg-black bg-opacity-50 px-2 py-1 rounded">
-          {connectionState}
-        </span>
+      <div className="absolute left-3 top-3 inline-flex items-center rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white">
+        {statusText}
       </div>
 
-      {/* Student Name */}
-      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-3">
-        <p className="text-white font-semibold text-sm truncate">
-          {studentName}
-        </p>
+      <div className="absolute right-3 top-3 inline-flex items-center rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white">
+        {peerId}
       </div>
 
-      {/* Media Controls Overlay */}
-      <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        {videoEnabled ? (
-          <div className="bg-green-600 text-white p-1.5 rounded-full">
-            <FiVideo size={14} />
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-4 py-3 text-white">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold">{studentName}</p>
+            <p className="mt-1 text-xs text-slate-200">Student camera</p>
           </div>
-        ) : (
-          <div className="bg-red-600 text-white p-1.5 rounded-full">
-            <FiVideoOff size={14} />
-          </div>
-        )}
-
-        {audioEnabled ? (
-          <div className="bg-green-600 text-white p-1.5 rounded-full">
-            <FiMic size={14} />
-          </div>
-        ) : (
-          <div className="bg-red-600 text-white p-1.5 rounded-full">
-            <FiMicOff size={14} />
-          </div>
-        )}
-      </div>
-
-      {/* Fullscreen Background when Not Producing */}
-      {!isProducing && (
-        <div className="absolute inset-0 bg-gray-700 bg-opacity-50 flex items-center justify-center">
-          <div className="text-center">
-            <FiVideoOff size={32} className="text-gray-300 mx-auto mb-2" />
-            <p className="text-gray-300 text-xs">Camera Off</p>
+          <div className="flex items-center gap-2 text-white">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/60">
+              {videoEnabled ? <FiVideo size={14} /> : <FiVideoOff size={14} />}
+            </span>
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/60">
+              {audioEnabled ? <FiMic size={14} /> : <FiMicOff size={14} />}
+            </span>
           </div>
         </div>
-      )}
-    </div>
+      </div>
+
+      {!isProducing ? (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-center text-white">
+          <div>
+            <p className="text-sm font-semibold">Camera paused</p>
+            <p className="mt-1 text-xs text-slate-200">Waiting for video to resume.</p>
+          </div>
+        </div>
+      ) : null}
+    </article>
   );
 }

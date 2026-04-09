@@ -32,6 +32,7 @@ export class ViolationService {
   ): Promise<ViolationResponse> {
     const {
       attemptId,
+      roomId,
       violationType,
       severity = 'warning',
       detail,
@@ -43,6 +44,10 @@ export class ViolationService {
       sessionId,
       timestamp
     } = request;
+
+    if (!attemptId || !violationType) {
+      throw new Error('Attempt not found');
+    }
 
     // Verify attempt belongs to user
     const attemptResult = await this.pg.query<{ id: number; user_id: number; status: string }>(
@@ -84,12 +89,13 @@ export class ViolationService {
 
       const result = await client.query<ViolationRow>(
         `INSERT INTO violations
-        (attempt_id, violation_type, severity, detail, occurred_at,
+        (attempt_id, room_id, violation_type, severity, detail, occurred_at,
          frame_snapshot_path, metadata, integrity_hash, ai_signature, client_ip, session_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING *`,
         [
           attemptId,
+          roomId || null,
           violationType,
           severity,
           detail || null,
@@ -105,34 +111,41 @@ export class ViolationService {
 
       const violation = this.mapViolationRow(result.rows[0]);
 
-      // Update attempt violation count
+      // Keep the persisted counter aligned with warning severity only.
       await client.query(
-        'UPDATE exam_attempts SET violation_count = violation_count + 1 WHERE id = $1',
+        `UPDATE exam_attempts
+         SET violation_count = (
+           SELECT COUNT(*)
+           FROM violations
+           WHERE attempt_id = $1
+           AND severity = 'warning'
+         )
+         WHERE id = $1`,
         [attemptId]
       );
 
       // Get updated violation count
-      const countResult = await client.query<{ count: string; max_warnings: number }>(
-        `SELECT ea.violation_count, e.max_warnings
-        FROM exam_attempts ea
-        JOIN exams e ON ea.exam_id = e.id
-        WHERE ea.id = $1`,
+      const countResult = await client.query<{ count: string; max_warnings: number; auto_submit_on_warning_limit: boolean }>(
+        `SELECT
+           ea.violation_count::text as count,
+           e.max_warnings,
+           e.auto_submit_on_warning_limit
+         FROM exam_attempts ea
+         JOIN exams e ON ea.exam_id = e.id
+         WHERE ea.id = $1`,
         [attemptId]
       );
 
-      const { count, max_warnings } = countResult.rows[0];
+      const { count, max_warnings, auto_submit_on_warning_limit } = countResult.rows[0];
       const violationCount = parseInt(count, 10);
       const threshold = max_warnings;
-      const shouldAutoSubmit = violationCount >= threshold;
+      const shouldAutoSubmit = Boolean(auto_submit_on_warning_limit) && violationCount >= threshold;
 
       await client.query('COMMIT');
 
       // Auto-submit if threshold reached
       if (shouldAutoSubmit) {
-        // Trigger auto-submit in background
-        this.examService.autoSubmitExam(attemptId).catch(error => {
-          console.error(`Failed to auto-submit attempt ${attemptId}:`, error);
-        });
+        await this.examService.autoSubmitExam(attemptId);
       }
 
       return {
@@ -201,13 +214,11 @@ export class ViolationService {
    * Check violation count for an attempt
    */
   async checkViolationCount(attemptId: number): Promise<ViolationCheckResponse> {
-    const result = await this.pg.query<{ count: string; max_warnings: number }>(
-      `SELECT COUNT(*) as count, e.max_warnings
-      FROM violations v
-      JOIN exam_attempts ea ON v.attempt_id = ea.id
+    const result = await this.pg.query<{ count: string; max_warnings: number; auto_submit_on_warning_limit: boolean }>(
+      `SELECT ea.violation_count::text as count, e.max_warnings, e.auto_submit_on_warning_limit
+      FROM exam_attempts ea
       JOIN exams e ON ea.exam_id = e.id
-      WHERE ea.id = $1
-      GROUP BY e.max_warnings`,
+      WHERE ea.id = $1`,
       [attemptId]
     );
 
@@ -222,7 +233,7 @@ export class ViolationService {
       };
     }
 
-    const { count, max_warnings } = result.rows[0];
+    const { count, max_warnings, auto_submit_on_warning_limit } = result.rows[0];
     const violationCount = parseInt(count, 10);
 
     return {
@@ -230,7 +241,7 @@ export class ViolationService {
       data: {
         count: violationCount,
         threshold: max_warnings,
-        shouldAutoSubmit: violationCount >= max_warnings
+        shouldAutoSubmit: Boolean(auto_submit_on_warning_limit) && violationCount >= max_warnings
       }
     };
   }

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Answer Sheet Upload</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="exam-page upload-session-page">
+  <div class="upload-session-shell">
+    <section class="upload-session-hero">
+      <div>
+        <div class="upload-session-kicker">Post-Exam Step</div>
+        <h1 class="upload-session-title">Upload Answer Sheet</h1>
+        <p class="upload-session-copy">
+          Scan this QR code on your phone to upload your answer-sheet PDF before the upload window ends. If scanning does not work, use the link shown below the QR code.
+        </p>
+      </div>
+      <div class="upload-session-badge" id="uploadSessionStatusBadge">Preparing upload...</div>
+    </section>
+
+    <section class="upload-session-grid">
+      <article class="upload-session-card upload-session-card-qr">
+        <div class="upload-session-card-header">
+          <div>
+            <h2 class="upload-session-card-title">Scan To Upload</h2>
+            <p class="upload-session-card-copy">Use this QR or the link below to open the answer-sheet upload page on your phone.</p>
+          </div>
+        </div>
+
+        <div class="upload-session-qr-frame">
+          <img id="uploadSessionQrImage" alt="Answer sheet upload QR code" hidden>
+          <div id="uploadSessionQrFallback" class="upload-session-qr-fallback">QR code unavailable</div>
+        </div>
+
+        <div class="upload-session-link-row">
+          <a id="uploadSessionMobileLink" class="upload-session-link" href="#" target="_blank" rel="noopener noreferrer">Open the upload page on your phone</a>
+        </div>
+      </article>
+
+      <article class="upload-session-card">
+        <div class="upload-session-card-header">
+          <div>
+            <h2 class="upload-session-card-title">Upload Details</h2>
+            <p class="upload-session-card-copy" id="uploadSessionStateMessage">Scan the QR code and upload the answer-sheet PDF before the timer ends.</p>
+          </div>
+        </div>
+
+        <dl class="upload-session-meta">
+          <div class="upload-session-meta-row">
+            <dt>Student</dt>
+            <dd id="uploadSessionStudent">-</dd>
+          </div>
+          <div class="upload-session-meta-row">
+            <dt>Exam</dt>
+            <dd id="uploadSessionExam">-</dd>
+          </div>
+          <div class="upload-session-meta-row">
+            <dt>Attempt</dt>
+            <dd id="uploadSessionAttempt">-</dd>
+          </div>
+          <div class="upload-session-meta-row">
+            <dt>Token</dt>
+            <dd class="upload-session-token" id="uploadSessionToken">-</dd>
+          </div>
+          <div class="upload-session-meta-row">
+            <dt>Upload window</dt>
+            <dd id="uploadSessionWindow">-</dd>
+          </div>
+          <div class="upload-session-meta-row">
+            <dt>Expires in</dt>
+            <dd id="uploadSessionCountdown">-</dd>
+          </div>
+          <div class="upload-session-meta-row">
+            <dt>Accepted file</dt>
+            <dd id="uploadSessionAcceptedFiles">PDF</dd>
+          </div>
+          <div class="upload-session-meta-row">
+            <dt>Uploaded at</dt>
+            <dd id="uploadSessionUploadedAt">Not uploaded yet</dd>
+          </div>
+          <div class="upload-session-meta-row">
+            <dt>Receipt</dt>
+            <dd id="uploadSessionReceipt">Pending</dd>
+          </div>
+          <div class="upload-session-meta-row">
+            <dt>File</dt>
+            <dd id="uploadSessionFileName">Pending PDF upload</dd>
+          </div>
+        </dl>
+
+        <div class="upload-session-actions">
+          <button class="secondary-btn" id="uploadSessionRefreshButton" type="button">Refresh Status</button>
+          <button class="secondary-btn" id="uploadSessionBackButton" type="button">Return to Home</button>
+        </div>
+      </article>
+    </section>
+  </div>
+
+  <script src="js/upload-session.js"></script>
+</body>
+</html>
